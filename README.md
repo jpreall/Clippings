@@ -10,3 +10,4 @@ Count mapped reads harboring TSO sub-sequene.
 (your_env) $ git clone https://github.com/jpreall/Clippings.git
 (your_env) $ pip install -e Clippings
 
+## Example

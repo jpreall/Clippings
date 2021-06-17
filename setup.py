@@ -28,7 +28,8 @@ INSTALL_REQUIRES = [
       'numpy',
       'pandas',
       'scipy',
-      'h5sparse'
+      'h5sparse',
+      'gtfparse'
 ]
 
 setup(name=PACKAGE_NAME,

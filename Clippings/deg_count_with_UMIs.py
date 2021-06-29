@@ -386,8 +386,11 @@ def main(args):
     print('Gathering metadata from bam file...')
     CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.bamfile)
 
-    if args.gtf != None:
-        TSS_dict, feature_dictionary = dict_of_TSSes(args.gtf)
+    if args.TSSgtf != None:
+<<<<<<< HEAD
+        TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
+=======
+        TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
         deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary)
     else:
         deg_count_dict, feature_dictionary = bam_parser_noTSS(args.bamfile)

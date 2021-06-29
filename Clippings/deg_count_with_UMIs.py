@@ -390,9 +390,7 @@ def main(args):
 <<<<<<< HEAD
         TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
 =======
-        TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf) 
-						
->>>>>>> 01e5ff6a9f632f97e385116b1bc2a2a490183fac
+        TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
         deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary)
     else:
         deg_count_dict, feature_dictionary = bam_parser_noTSS(args.bamfile)

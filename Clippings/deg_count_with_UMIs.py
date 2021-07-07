@@ -73,22 +73,22 @@ def bam_parser_noTSS(bamfile):
                     #total_counts += 1
 
                 #Initialize the entry in the degraded count dictionary.  This may be redundant with the step below...
-                    if gene_id not in deg_count_dict[cell_barcode].keys():
+                if gene_id not in deg_count_dict[cell_barcode].keys():
                         deg_count_dict[cell_barcode][gene_id] = set()
-
+                        
         ### Only take degraded RNAs
-                    if aln.has_tag("ts:i"):
+                if aln.has_tag("ts:i"):
                     	# Check to see if this is a unique UMI for this cell/gene combo:            
-	                	if aln.has_tag("UB"):
-		                	UMI = aln.get_tag("UB")
-	                		deg_count_dict[cell_barcode][gene_id] = deg_count_dict[cell_barcode][gene_id].add(UMI)
+                    if aln.has_tag("UB"):
+                        UMI = aln.get_tag("UB")
+                        deg_count_dict[cell_barcode][gene_id].add(UMI)
 
             else:
                 continue
 
 		## Finally, collapse the UMI-containing sets into digital gene expression counts:
 		
-		for cell in deg_count_dict.keys():
+        for cell in deg_count_dict.keys():
             for gene in deg_count_dict[cell].keys():
                 deg_count_dict[cell][gene] = len(deg_count_dict[cell][gene])
         
@@ -161,8 +161,8 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
                         # Find this cell/gene entry in the dictionary and instantiate with 0, if it doesn't exist.
                         # then add 1 to the tally.
                         #deg_count_dict[cell_barcode][gene_id] = deg_count_dict[cell_barcode].get(gene_id, 0) + 1
-						
-						deg_count_dict[cell_barcode][gene_id] = deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
+
+                        deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
 						
                         #Keep a running tab of total degraded counts:
                         ## total_degraded_counts += 1 THIS IS BORKEN
@@ -177,7 +177,7 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
     #print('Total TSS counts:', total_TSS_counts)
     
     ## Finally, collapse the UMI-containing sets into digital gene expression counts:		
-	for cell in deg_count_dict.keys():
+    for cell in deg_count_dict.keys():
         for gene in deg_count_dict[cell].keys():
             deg_count_dict[cell][gene] = len(deg_count_dict[cell][gene])
 
@@ -335,9 +335,9 @@ def get_metadata(bamfile):
 
 def fetch_barcode_whitelist(CHEMISTRY):
     VALID_CHEMISTRIES = {
-        'Single Cell 3\' v2':'files/737K-august-2016.txt.gz',
-        'Single Cell 3\' v3':'files/3M-february-2018.txt.gz',
-        'unspecified_chemistry':'files/3M-february-2018.txt.gz'
+        'Single Cell 3\' v2':'../files/737K-august-2016.txt.gz',
+        'Single Cell 3\' v3':'../files/3M-february-2018.txt.gz',
+        'unspecified_chemistry':'../files/3M-february-2018.txt.gz'
     }
     WHITELIST_FILE = VALID_CHEMISTRIES[CHEMISTRY]
 
@@ -387,10 +387,12 @@ def main(args):
     CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.bamfile)
 
     if args.TSSgtf != None:
-<<<<<<< HEAD
         TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
+<<<<<<< HEAD
+=======
 =======
         TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
+>>>>>>> a9e7f856b900efd369b88b9b47ddbfca8741b3ef
         deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary)
     else:
         deg_count_dict, feature_dictionary = bam_parser_noTSS(args.bamfile)

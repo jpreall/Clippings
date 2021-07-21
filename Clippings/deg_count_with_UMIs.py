@@ -113,6 +113,7 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
     cell_barcode_set = set()
 
     # Running tallies of gene counts
+    total_lines_read = 0
     total_counts = 0
     total_degraded_counts = 0
     total_TSS_counts = 0
@@ -124,6 +125,11 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
     alignments = pysam.AlignmentFile(bamfile, "rb")
     print('Counting degraded reads...')
     for aln in alignments.fetch(until_eof=True):
+    
+        total_lines_read += 1 
+        
+        if total_lines_read % 10000000 == 0:
+            print("Lines read = ", total_lines_read)
     ### Get Cell barcode and update set
         if aln.has_tag("CB"):
             cell_barcode = aln.get_tag("CB")
@@ -161,9 +167,11 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
                         # Find this cell/gene entry in the dictionary and instantiate with 0, if it doesn't exist.
                         # then add 1 to the tally.
                         #deg_count_dict[cell_barcode][gene_id] = deg_count_dict[cell_barcode].get(gene_id, 0) + 1
-
-                        deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
-						
+                        NO_UB = 0
+                        if aln.has_tag("UB"):
+                            deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
+                        else:
+                            NO_UB += 1 
                         #Keep a running tab of total degraded counts:
                         ## total_degraded_counts += 1 THIS IS BORKEN
 
@@ -180,7 +188,7 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
     for cell in deg_count_dict.keys():
         for gene in deg_count_dict[cell].keys():
             deg_count_dict[cell][gene] = len(deg_count_dict[cell][gene])
-
+    print("Number of lines without 'UB' tag ", NO_UB)
     return deg_count_dict, feature_dictionary
 
 def write_10_mtx(data_dictionary, feature_dictionary, output_folder):
@@ -387,12 +395,9 @@ def main(args):
     CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.bamfile)
 
     if args.TSSgtf != None:
+       # (This could be where miRNA arg goes) TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
+
         TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
-<<<<<<< HEAD
-=======
-=======
-        TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
->>>>>>> a9e7f856b900efd369b88b9b47ddbfca8741b3ef
         deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary)
     else:
         deg_count_dict, feature_dictionary = bam_parser_noTSS(args.bamfile)

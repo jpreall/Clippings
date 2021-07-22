@@ -31,11 +31,12 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
     # Maintain all detected barcodes as a set.  In future, this might be better to save the 10X whitelist in the repo and read from that.
     cell_barcode_set = set()
 
-    # Running tallies of gene counts
+    # Running tallies of gene counts for QC, debugging, and reporting purposes
     total_lines_read = 0
     total_counts = 0
     total_degraded_counts = 0
     total_TSS_counts = 0
+    NO_UB = 0
 
     if type(TSS_dict) != dict:
         print('Warning, TSS dictionary generation failed.  Exiting.')
@@ -90,8 +91,7 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
                         if NOT_TSS & VALID_GENE & CLIPPED:
                             if gene_id not in deg_count_dict[cell_barcode].keys():
                                 deg_count_dict[cell_barcode][gene_id] = set()
-
-                            NO_UB = 0
+     
                             if aln.has_tag("UB"):
                                 deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
                             else:

@@ -26,7 +26,7 @@ import time
 import os.path as path
 FILES_PATH =  path.abspath(path.join(__file__ ,"../../files/"))
 
-def bam_parser(bamfile, TSS_dict, feature_dictionary):
+def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
 
     # Initialize dictionary to store gene-cell matrix
     deg_count_dict = collections.defaultdict(list)
@@ -46,6 +46,11 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
         exit(0)
 
     alignments = pysam.AlignmentFile(bamfile, "rb")
+    
+    if write_degraded_bam_file:
+        OUTPUT_BAM = pysam.AlignmentFile('degraded_not_TSS.bam', "wb", template=alignments)
+        print('Writing TSS-filtered degraded BAM file to degraded_not_TSS.bam')
+    
     print('Counting degraded reads...')
     for aln in alignments.fetch(until_eof=True):
     
@@ -97,6 +102,8 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
      
                             if aln.has_tag("UB"):
                                 deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
+                                if write_degraded_bam_file:
+                                    OUTPUT_BAM.write(aln)
                             else:
                                 NO_UB += 1
                                 
@@ -117,6 +124,9 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary):
         for gene in deg_count_dict[cell].keys():
             deg_count_dict[cell][gene] = len(deg_count_dict[cell][gene])
 
+    if write_degraded_bam_file:
+        OUTPUT_BAM.close()
+        
     return deg_count_dict, feature_dictionary
     
 
@@ -327,6 +337,7 @@ def report_time():
 def main(args):
     outdir = args.out
     genome = args.genome
+    write_degraded_bam_file = args.write_degraded_bam_file
 
     if os.path.isdir(outdir):
         overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
@@ -343,7 +354,7 @@ def main(args):
 
     if args.TSSgtf != None:
         TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
-        deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary)
+        deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file)
     else:
         deg_count_dict, feature_dictionary = bam_parser_noTSS(args.bamfile)
 
@@ -374,6 +385,7 @@ if __name__ == '__main__':
     parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
     parser.add_argument('--TSSgtf', dest='TSSgtf', help='GTF file for filtering TSS-overlapping reads', default=None)
     parser.add_argument('--miRNAgtf', dest='miRNAgtf', help='GTF file for assigning TSO-reads to miRNA cropping sites', default=None)
+    parser.add_argument('--write_degraded_bam_file', dest='write_degraded_bam_file', help='Writes all TSS filtered reads to a file called degraded_not_TSS.bam in parent directory', default=False)
 
     if len(sys.argv) == 1:
         parser.print_help()

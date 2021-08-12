@@ -50,6 +50,9 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
     total_degraded_counts = 0
     total_TSS_counts = 0
     NO_UB = 0
+    exon_count = 0
+    intron_count = 0
+    intergenic_count = 0
 
     if type(TSS_dict) != dict:
         print('Warning, TSS dictionary generation failed.  Exiting.')
@@ -72,9 +75,6 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
         ### Only consider uniquely mapped reads:
         if aln.mapping_quality == 255:
             # Only get exonic reads
-            exon_count = 0
-            intron_count = 0
-            intergenic_count = 0
             if aln.get_tag("RE") == 'E':
                 exon_count += 1
                 ### Get Cell barcode and update set

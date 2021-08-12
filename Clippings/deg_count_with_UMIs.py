@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+#$ -cwd
+#$ -v PATH,LD_LIBRARY_PATH
 """
 Count mapped reads harboring TSO sub-sequene
 Input:
@@ -6,6 +9,8 @@ Input:
 Author: jpreall@cshl.edu
 Date: 2021-04
 """
+import argparse
+import sys
 import pysam
 import collections
 import sys
@@ -22,9 +27,14 @@ import h5sparse
 import h5py
 import gtfparse
 import time
+from pararead import ParaReadProcessor
+import logmuse
+import json
+import glob
 
 import os.path as path
-FILES_PATH =  path.abspath(path.join(__file__ ,"../../files/"))
+# FileNotFoundError: [Errno 2] No such file or directory: '/cm/local/apps/uge/var/spool.p7444/bam08/files/3M-february-2018.txt.gz'
+#FILES_PATH =  path.abspath(path.join(path.dirname(__file__) ,"../files/"))
 
 def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
 
@@ -40,95 +50,107 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
     total_degraded_counts = 0
     total_TSS_counts = 0
     NO_UB = 0
+    exon_count = 0
+    intron_count = 0
+    intergenic_count = 0
 
     if type(TSS_dict) != dict:
         print('Warning, TSS dictionary generation failed.  Exiting.')
         exit(0)
 
     alignments = pysam.AlignmentFile(bamfile, "rb")
-    
+
     if write_degraded_bam_file:
         OUTPUT_BAM = pysam.AlignmentFile('degraded_not_TSS.bam', "wb", template=alignments)
         print('Writing TSS-filtered degraded BAM file to degraded_not_TSS.bam')
-    
+
     print('Counting degraded reads...')
     for aln in alignments.fetch(until_eof=True):
-    
-        total_lines_read += 1 
+
+        total_lines_read += 1
 
         if total_lines_read % 1e7 == 0:
             print('Lines read:',f'{total_lines_read:,}')
 
         ### Only consider uniquely mapped reads:
         if aln.mapping_quality == 255:
-        
-            ### Get Cell barcode and update set
-            if aln.has_tag("CB"):
-                cell_barcode = aln.get_tag("CB")
-                if cell_barcode not in cell_barcode_set:
-                    cell_barcode_set.add(cell_barcode)
-                    deg_count_dict[cell_barcode] = collections.defaultdict(list)
+            # Only get exonic reads
+            if aln.get_tag("RE") == 'E':
+                exon_count += 1
+                ### Get Cell barcode and update set
+                if aln.has_tag("CB"):
+                    cell_barcode = aln.get_tag("CB")
+                    if cell_barcode not in cell_barcode_set:
+                        cell_barcode_set.add(cell_barcode)
+                        deg_count_dict[cell_barcode] = collections.defaultdict(list)
 
-                ### Get Gene Name and Ensembl ID, if it there is one
-                if aln.has_tag("GX"):
-                    gene_id = aln.get_tag("GX")
+                    ### Get Gene Name and Ensembl ID, if it there is one
+                    if aln.has_tag("GX"):
+                        gene_id = aln.get_tag("GX")
 
-                    ### only take reads that unambiguously map to one gene
-                    VALID_GENE = gene_id in feature_dictionary.keys()
+                        ### only take reads that unambiguously map to one gene
+                        VALID_GENE = gene_id in feature_dictionary.keys()
 
-                    if VALID_GENE:
-                        TSSes_for_gene = TSS_dict[gene_id]
-                        all_TSS_overlaps = set()
+                        if VALID_GENE:
+                            TSSes_for_gene = TSS_dict[gene_id]
+                            all_TSS_overlaps = set()
 
-                        for TSS in TSSes_for_gene:
-                            all_TSS_overlaps.add(aln.get_overlap(TSS-20,TSS+20))
+                            for TSS in TSSes_for_gene:
+                                all_TSS_overlaps.add(aln.get_overlap(TSS-20,TSS+20))
 
-                        NOT_TSS = max(all_TSS_overlaps) < 10
-                        IS_TSS = not NOT_TSS
-                        
+                            NOT_TSS = max(all_TSS_overlaps) < 10
+                            IS_TSS = not NOT_TSS
 
-                        if aln.has_tag("GN"):
-                            gene_name = aln.get_tag("GN")
 
-                        #### keep a running tally of total gene mapping counts:
-                        total_counts += 1
+                            if aln.has_tag("GN"):
+                                gene_name = aln.get_tag("GN")
 
-                        #### Only take degraded RNAs
-                        CLIPPED = aln.has_tag("ts:i")
+                            #### keep a running tally of total gene mapping counts:
+                            total_counts += 1
 
-                        if NOT_TSS & VALID_GENE & CLIPPED:
-                            if gene_id not in deg_count_dict[cell_barcode].keys():
-                                deg_count_dict[cell_barcode][gene_id] = set()
-     
-                            if aln.has_tag("UB"):
-                                deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
-                                if write_degraded_bam_file:
-                                    OUTPUT_BAM.write(aln)
-                            else:
-                                NO_UB += 1
-                                
-                        #keep a running tally of all TSS mapping counts:
-                        elif IS_TSS & CLIPPED & VALID_GENE:
-                            total_TSS_counts += 1
+                            #### Only take degraded RNAs
+                            CLIPPED = aln.has_tag("ts:i")
 
+                            if NOT_TSS & VALID_GENE & CLIPPED:
+                                if gene_id not in deg_count_dict[cell_barcode].keys():
+                                    deg_count_dict[cell_barcode][gene_id] = set()
+
+                                if aln.has_tag("UB"):
+                                    deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
+                                    if write_degraded_bam_file:
+                                        OUTPUT_BAM.write(aln)
+                                else:
+                                    NO_UB += 1
+
+                            #keep a running tally of all TSS mapping counts:
+                            elif IS_TSS & CLIPPED & VALID_GENE:
+                                total_TSS_counts += 1
+
+                else:
+                    continue
+            elif aln.get_tag("RE") == 'N':
+                intron_count += 1
             else:
-                continue
+                intergenic_count += 1
 
+    print('Total exonic: ', exon_count)
+    print('Total intronic: ', intron_count)
+    print('Total intergenic: ', intergenic_count)
     #print('Total counts:', total_counts)
     #print('Total degraded counts:', total_degraded_counts)
     print('Total TSS reads (not UMI de-duplicated):', total_TSS_counts)
     print("Number of lines without 'UB' tag ", NO_UB)
-        
-    ## Finally, collapse the UMI-containing sets into digital gene expression counts:		
+
+    ## Finally, collapse the UMI-containing sets into digital gene expression counts:
     for cell in deg_count_dict.keys():
         for gene in deg_count_dict[cell].keys():
             deg_count_dict[cell][gene] = len(deg_count_dict[cell][gene])
 
     if write_degraded_bam_file:
         OUTPUT_BAM.close()
-        
+
     return deg_count_dict, feature_dictionary
-    
+
 
 def count_dict_to_sparse_matrix(data_dictionary, feature_dictionary):
     """
@@ -155,18 +177,18 @@ def count_dict_to_sparse_matrix(data_dictionary, feature_dictionary):
         row.extend([bcindex] * len(newcols))
         col.extend(newcols)
         data.extend(list(data_dictionary[cell].values()))
-        
+
     print('Converting to scipy sparse matrix...', time.asctime())
     MATRIX = sp.csr_matrix((data, (row, col)), shape=SHAPE, dtype='int32')
 
     return MATRIX, barcodes
-    
-    
+
+
 def write_10_mtx(data_dictionary, feature_dictionary, output_folder):
     """
     write degraded counts to mtx format
     """
-    
+
     #Prepare the matrix and cell barcodes
     MATRIX, barcodes = count_dict_to_sparse_matrix(data_dictionary, feature_dictionary)
 
@@ -200,7 +222,7 @@ def write_10x_h5(data_dictionary, feature_dictionary, output_folder, LIBRARY_ID=
     MATRIX, barcodes = count_dict_to_sparse_matrix(data_dictionary, feature_dictionary)
     SHAPET = (len(feature_dictionary.keys()),len(barcodes))
     SHAPE = (len(barcodes),len(feature_dictionary.keys()))
-    
+
     #Declare the output h5 file:
     outfile=os.path.join(output_folder,'raw_clipped_features_matrix.h5')
     print('Writing to '+outfile)
@@ -284,18 +306,24 @@ def get_metadata(bamfile):
         CHEMISTRY = 'unspecified_chemistry'
 
     ## Get the barcode whitelist for the relevenat chemistry
-    BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY,FILES_PATH)
+    #BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY,FILES_PATH)
+    BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY)
 
     return CHEMISTRY, LIBRARY_ID, BC_WHITELIST
 
 
 
-def fetch_barcode_whitelist(CHEMISTRY, FILES_PATH):
-    
+def fetch_barcode_whitelist(CHEMISTRY):
+# removed FILES_PATH from argument
+    #VALID_CHEMISTRIES = {
+    #    'Single Cell 3\' v2':os.path.join(FILES_PATH,'737K-august-2016.txt.gz'),
+    #    'Single Cell 3\' v3':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
+    #    'unspecified_chemistry':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
+    #}
     VALID_CHEMISTRIES = {
-        'Single Cell 3\' v2':os.path.join(FILES_PATH,'737K-august-2016.txt.gz'),
-        'Single Cell 3\' v3':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
-        'unspecified_chemistry':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
+        'Single Cell 3\' v2':'../files/737K-august-2016.txt.gz',
+        'Single Cell 3\' v3':'../files/3M-february-2018.txt.gz',
+        'unspecified_chemistry':'../files/3M-february-2018.txt.gz'
     }
     WHITELIST_FILE = VALID_CHEMISTRIES[CHEMISTRY]
 
@@ -333,7 +361,7 @@ def dict_of_TSSes(TSSgtf):
 
 def report_time():
     print('Time started:',time.asctime())
-	
+
 def main(args):
     outdir = args.out
     genome = args.genome

@@ -33,7 +33,7 @@ import json
 import glob
 
 import os.path as path
-FILES_PATH =  path.abspath(path.join(__file__ ,"../../files/"))
+FILES_PATH =  path.abspath(path.join(__file__ ,"../files/"))
 
 def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
 

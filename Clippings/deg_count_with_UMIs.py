@@ -33,7 +33,8 @@ import json
 import glob
 
 import os.path as path
-FILES_PATH =  path.abspath(path.join(__file__ ,"../files/"))
+# FileNotFoundError: [Errno 2] No such file or directory: '/cm/local/apps/uge/var/spool.p7444/bam08/files/3M-february-2018.txt.gz'
+#FILES_PATH =  path.abspath(path.join(path.dirname(__file__) ,"../files/"))
 
 def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
 
@@ -305,18 +306,24 @@ def get_metadata(bamfile):
         CHEMISTRY = 'unspecified_chemistry'
 
     ## Get the barcode whitelist for the relevenat chemistry
-    BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY,FILES_PATH)
+    #BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY,FILES_PATH)
+    BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY)
 
     return CHEMISTRY, LIBRARY_ID, BC_WHITELIST
 
 
 
-def fetch_barcode_whitelist(CHEMISTRY, FILES_PATH):
-
+def fetch_barcode_whitelist(CHEMISTRY):
+# removed FILES_PATH from argument
+    #VALID_CHEMISTRIES = {
+    #    'Single Cell 3\' v2':os.path.join(FILES_PATH,'737K-august-2016.txt.gz'),
+    #    'Single Cell 3\' v3':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
+    #    'unspecified_chemistry':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
+    #}
     VALID_CHEMISTRIES = {
-        'Single Cell 3\' v2':os.path.join(FILES_PATH,'737K-august-2016.txt.gz'),
-        'Single Cell 3\' v3':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
-        'unspecified_chemistry':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
+        'Single Cell 3\' v2':'../files/737K-august-2016.txt.gz',
+        'Single Cell 3\' v3':'../files/3M-february-2018.txt.gz',
+        'unspecified_chemistry':'../files/3M-february-2018.txt.gz'
     }
     WHITELIST_FILE = VALID_CHEMISTRIES[CHEMISTRY]
 

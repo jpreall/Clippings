@@ -600,7 +600,7 @@ def main(cmdl):
 
     print('Gathering metadata from bam file...')
     print('Time started:',time.asctime())
-    CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.bamfile)
+    CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.readsfile)
 
     #write 10X mtx format
     if args.mtx:

@@ -36,7 +36,140 @@ import os.path as path
 # FileNotFoundError: [Errno 2] No such file or directory: '/cm/local/apps/uge/var/spool.p7444/bam08/files/3M-february-2018.txt.gz'
 #FILES_PATH =  path.abspath(path.join(path.dirname(__file__) ,"../files/"))
 
-def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
+
+def _parse_cmdl(cmdl):
+    """ Define and parse command-line interface. """
+
+    parser = argparse.ArgumentParser(
+        description="Degradation dictionary using ParaReadProcessor "
+                    "implementation",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument(
+        "readsfile", help="Path to sequencing reads file (bam file).")
+
+    parser.add_argument(
+        "-O", "--outfile", required=True, help="Path to output file.")
+
+    parser.add_argument(
+        "-C", "--cores", required=True, default=1, help="Number of cores.")
+
+    # may need to delete this. Not sure what exact functionality is
+    parser.add_argument('-t', '--limit', dest='limit',
+        help="Limit to these chromosomes", nargs = "+", default=None)
+
+    parser.add_argument(
+        "-TSS", "--TSSgtf", help="Path to gtf file.")
+
+    parser.add_argument('--out', dest='out', help='Output folder', default="raw_clipped_features_matrix")
+    parser.add_argument('--genome', dest='genome', help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
+    parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
+    parser.add_argument('--miRNAgtf', dest='miRNAgtf', help='GTF file for assigning TSO-reads to miRNA cropping sites', default=None)
+    parser.add_argument('--write_degraded_bam_file', dest='write_degraded_bam_file', help='Writes all TSS filtered reads to a file called degraded_not_TSS.bam in parent directory', default=False)
+
+    parser = logmuse.add_logging_options(parser)
+    return parser.parse_args(cmdl)
+
+
+class ReadCounter(ParaReadProcessor):
+    """
+    Create child class ReadCounter from parent ParaReadProcessor.
+
+    ReadCounter contains additional arguements such as feature dictionary
+    and transcription start site dictionary.
+
+    Args:
+        ParaReadProcessor (ParaReadProcessor): base class for parallel
+        processing of sequencing reads
+
+    Methods:
+        init
+        call
+
+    """
+
+    def __init__(self, *args, **kwargs):
+        if 'features' in kwargs:
+            features = kwargs.pop('features')
+        else:
+            args = list(features)
+            features = args.pop()
+        if 'TSSdictionary' in kwargs:
+            TSSdictionary = kwargs.pop('TSSdictionary')
+        else:
+            TSSdictionary = args.pop()
+        if 'write_degraded_bam_file' in kwargs:
+            write_degraded_bam_file = kwargs.pop('write_degraded_bam_file')
+        else:
+            args = list(write_degraded_bam_file)
+            write_degraded_bam_file = args.pop()
+        ParaReadProcessor.__init__(self, *args, **kwargs)
+        self._features = features
+        self._TSSdictionary = TSSdictionary
+        self._write_degraded_bam_file = write_degraded_bam_file
+
+    def __call__(self, chromosome, _=None):
+        """
+        For each chromosome, perform a specific action such as building the
+        degradation dictionary.
+
+        Args:
+            chromosome (chromosome): description
+
+        Returns:
+            chromosome: description
+
+        Raises:
+            None
+
+        """
+
+        # PYSAM CAN ONLY READ THROUGH A FILE ONCE. THEN YOU NEED TO RELOAD IT
+        # THEREFORE IF DOING A LOOP USING PYSAM FUNCTIONS, DOING IT A SECOND
+        # TIME WILL GIVE AN EMPTY OUTPUT
+
+        reads = self.fetch_chunk(chromosome)
+
+        deg_count_dict = bam_parser_chunk(reads, self._TSSdictionary, self._features,
+        self._write_degraded_bam_file)
+        print('Finished running bam_parser_chunk: ',time.asctime())
+
+        with open(self._tempf(chromosome), 'w') as f:
+            #f.write("{}\t{}".format(chromosome, n_reads))
+            print(chromosome, file=f)
+            #the following might be too long of a print
+            print(dict(list(deg_count_dict.items())[0:15]), file=f)
+
+        print('Time Started for json write-out:',time.asctime())
+        #2021.08.09 Writing out dictionary as json to then re-load and combine
+        jsonFolder = 'jsonFolder'
+        import os
+        jsonPath = os.path.join(os.getcwd(),jsonFolder)
+        #change back if necessary
+        filePath = os.path.join(jsonPath, str(chromosome)+'.json')
+        with open(filePath, 'w') as f:
+            json.dump(deg_count_dict, f)
+
+        print('Finished json write-out:',time.asctime())
+        return chromosome
+
+def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_file):
+    """
+    A short description.
+
+    A bit longer description.
+
+    Args:
+        variable (type): description
+
+    Returns:
+        type: description
+
+    Raises:
+        Exception: description
+
+    """
+
 
     # Initialize dictionary to store gene-cell matrix
     deg_count_dict = collections.defaultdict(list)
@@ -58,14 +191,15 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
         print('Warning, TSS dictionary generation failed.  Exiting.')
         exit(0)
 
-    alignments = pysam.AlignmentFile(bamfile, "rb")
+    #alignments = pysam.AlignmentFile(bamfile, "rb")
 
+    # need to check to see if this feature works
     if write_degraded_bam_file:
         OUTPUT_BAM = pysam.AlignmentFile('degraded_not_TSS.bam', "wb", template=alignments)
         print('Writing TSS-filtered degraded BAM file to degraded_not_TSS.bam')
 
-    print('Counting degraded reads...')
-    for aln in alignments.fetch(until_eof=True):
+    print('Counting degraded reads...', time.asctime())
+    for aln in chunk:
 
         total_lines_read += 1
 
@@ -136,12 +270,13 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
     print('Total exonic: ', exon_count)
     print('Total intronic: ', intron_count)
     print('Total intergenic: ', intergenic_count)
-    #print('Total counts:', total_counts)
-    #print('Total degraded counts:', total_degraded_counts)
+    print('Total counts:', total_counts)
+    print('Total degraded counts:', total_degraded_counts)
     print('Total TSS reads (not UMI de-duplicated):', total_TSS_counts)
     print("Number of lines without 'UB' tag ", NO_UB)
-
+    time.asctime()
     ## Finally, collapse the UMI-containing sets into digital gene expression counts:
+    print("Collapsing deg_count_dict to have the number of UMI", time.asctime())
     for cell in deg_count_dict.keys():
         for gene in deg_count_dict[cell].keys():
             deg_count_dict[cell][gene] = len(deg_count_dict[cell][gene])
@@ -149,8 +284,34 @@ def bam_parser(bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file):
     if write_degraded_bam_file:
         OUTPUT_BAM.close()
 
-    return deg_count_dict, feature_dictionary
+    return deg_count_dict#, feature_dictionary
 
+def merge_dicts(*dicts):
+    """
+    Merge each chromosome dictionary of barcodes, genes, and umi counts to a
+    single degradation dictionary
+
+    Args:
+        variable (type): description
+
+    Returns:
+        type: description
+
+    Raises:
+        Exception: description
+
+    """
+
+    import collections
+    from collections import defaultdict
+
+    merged = defaultdict(dict)
+
+    for d in dicts:
+        for k, v in d.items():
+            merged[k].update(v)
+
+    return merged
 
 def count_dict_to_sparse_matrix(data_dictionary, feature_dictionary):
     """
@@ -186,6 +347,7 @@ def count_dict_to_sparse_matrix(data_dictionary, feature_dictionary):
 
 def write_10_mtx(data_dictionary, feature_dictionary, output_folder):
     """
+    Check to make sure this feature works
     write degraded counts to mtx format
     """
 
@@ -362,10 +524,19 @@ def dict_of_TSSes(TSSgtf):
 def report_time():
     print('Time started:',time.asctime())
 
-def main(args):
+def main(cmdl):
+    """
+    runner
+    """
+
+    import os
+    args = _parse_cmdl(cmdl)
+    global _LOGGER
+    _LOGGER = logmuse.logger_via_cli(args, make_root=True)
+
     outdir = args.out
     genome = args.genome
-    write_degraded_bam_file = args.write_degraded_bam_file
+    write_degraded_bam = args.write_degraded_bam_file
 
     if os.path.isdir(outdir):
         overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
@@ -373,50 +544,81 @@ def main(args):
             exit(0)
         elif overwrite.lower() == 'y':
             shutil.rmtree(outdir)
-
     os.mkdir(outdir)
+
+
+    _LOGGER.debug("Run dict of TSSes")
+    if args.TSSgtf != None:
+        TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
+        #deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file)
+    else:
+        #deg_count_dict, feature_dictionary = bam_parser_noTSS(args.bamfile)
+        print("No TSS file supplied")
+
+    #2021.08.09 Creating directory to write out json dict
+    jsonFolder = 'jsonFolder'
+    jsonPath = os.path.join(os.getcwd(),jsonFolder)
+    os.mkdir(jsonPath)
+    print('jsonPath: ', jsonPath)
+
+    _LOGGER.debug("Creating counter")
+    counter = ReadCounter(args.readsfile, cores=args.cores,
+                          outfile=args.outfile, action="CountReads",
+                          limit=args.limit, TSSdictionary=TSS_dict, features=feature_dictionary,
+                          write_degraded_bam_file=write_degraded_bam)
+    print('****MAIN STEP****: FINISHED THE READCOUNTER', time.asctime())
+
+    _LOGGER.debug("Registering files")
+    counter.register_files()
+    print('****MAIN STEP****: FINISHED REGISTERING', time.asctime())
+
+    _LOGGER.info("Counting reads: {}".format(args.readsfile))
+    good_chromosomes = counter.run()
+    print('****MAIN STEP****: FINISHED counter.run()', time.asctime())
+
+    _LOGGER.info("Collecting read counts: {}".format(args.outfile))
+    counter.combine(good_chromosomes, chrom_sep="\n")
+    print('****MAIN STEP****: FINISHED COMBINING', time.asctime())
+
+    print('Time ended:',time.asctime())
+    jsonFiles = glob.glob('./jsonFolder/*.json')
+    print('jsonFiles: ', jsonFiles)
+
+    # load dictionaries given name
+    print('Load json Dicts time started:',time.asctime())
+    jsonDictsList = []
+    for json_entry in jsonFiles:
+        with open(json_entry) as file:
+            jsonDict = json.load(file)
+        jsonDictsList.append(jsonDict)
+    print('Finish load json Dicts time ended:',time.asctime())
+
+    print('Merge dictionaries time started:',time.asctime())
+    mergedDict = merge_dicts(*jsonDictsList)
+    #print(dict(list(mergedDict.items())[0:15]))
+    print('Merge dictionaries time ended:',time.asctime())
 
     print('Gathering metadata from bam file...')
     print('Time started:',time.asctime())
     CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.bamfile)
 
-    if args.TSSgtf != None:
-        TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
-        deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file)
-    else:
-        deg_count_dict, feature_dictionary = bam_parser_noTSS(args.bamfile)
-
-
     #write 10X mtx format
     if args.mtx:
         try:
-            print('Writing 10X-formatted mtx directory...')
-            write_10_mtx(deg_count_dict, feature_dictionary, outdir)
+            print('Writing 10X-formatted mtx directory...', time.asctime())
+            write_10_mtx(mergedDict, feature_dictionary, outdir)
 
         except IOError:
             print("I/O error")
 
     ##write 10X h5 format
     try:
-        print('Writing 10X-formatted h5 file...')
-        write_10x_h5(deg_count_dict, feature_dictionary, outdir, LIBRARY_ID, CHEMISTRY, genome=genome)
-
+        print('Writing 10X-formatted h5 file...', time.asctime())
+        write_10x_h5(mergedDict, feature_dictionary, outdir, LIBRARY_ID, CHEMISTRY, genome=genome)
     except IOError:
         print("I/O error")
 
+    print('Done!', time.asctime())
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('bamfile', help='Input bam file')
-    parser.add_argument('--out', dest='out', help='Output folder', default="raw_clipped_features_matrix")
-    parser.add_argument('--genome', dest='genome', help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
-    parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
-    parser.add_argument('--TSSgtf', dest='TSSgtf', help='GTF file for filtering TSS-overlapping reads', default=None)
-    parser.add_argument('--miRNAgtf', dest='miRNAgtf', help='GTF file for assigning TSO-reads to miRNA cropping sites', default=None)
-    parser.add_argument('--write_degraded_bam_file', dest='write_degraded_bam_file', help='Writes all TSS filtered reads to a file called degraded_not_TSS.bam in parent directory', default=False)
-
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit()
-    args = parser.parse_args()
-    main(args)
+if __name__ == "__main__":
+    main(sys.argv[1:])

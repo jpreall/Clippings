@@ -267,129 +267,6 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
     print("Finish count_miRNAs: ", time.asctime())
     return count_table, example_read, results
 
-
-def write_10x_h5(data_dictionary, feature_dictionary, output_folder, LIBRARY_ID=None, CHEMISTRY=None, genome=None):
-    """
-    write degraded counts to h5 format
-    """
-    #Prepare the matrix and cell barcodes
-    MATRIX, barcodes = count_dict_to_sparse_matrix(data_dictionary, feature_dictionary)
-    SHAPET = (len(feature_dictionary.keys()),len(barcodes))
-    SHAPE = (len(barcodes),len(feature_dictionary.keys()))
-
-    #Declare the output h5 file:
-    outfile=os.path.join(output_folder,'raw_clipped_features_matrix.h5')
-    print('Writing to '+outfile)
-
-    # Encode Cell Barcodes
-    BCS = np.array(barcodes).astype('S')
-
-    # Encode Features
-    FEATURES = np.array(list(feature_dictionary.values())).astype('S')
-    FEATURE_IDS = np.array(list(feature_dictionary.keys())).astype('S')
-
-    ## May want to write a genome detection module in the future
-    if genome:
-        GENOME=genome
-    else:
-        print('No genome specified, writing attribute as unspecified_genome')
-        GENOME='unspecified_genome'
-
-    ## Chemistry
-    if not CHEMISTRY:
-        print('No chemistry version specified, writing attribute as unspecified_chemistry')
-        CHEMISTRY='unspecified_chemistry'
-
-    # Sample name
-    if not LIBRARY_ID:
-        print('No library ID specified, writing attribute as unknown_library')
-        LIBRARY_ID = 'unknown_library'
-
-    # Other fields needed by Cellranger h5
-    all_tag_keys = np.array([b'genome'])
-    ORIG_GEM_GROUPS = np.array([1])
-
-    # Write the h5
-    print('Starting to write h5:',time.asctime())
-    with h5sparse.File(outfile, 'w') as h5f:
-        h5f.create_dataset('matrix/', data=MATRIX, compression="gzip")
-        h5f.close()
-
-    with h5py.File(outfile, 'r+') as f:
-        f.create_dataset('matrix/barcodes', data=BCS)
-        f.create_dataset('matrix/shape', (2,),dtype='int32', data=SHAPET)
-        features = f.create_group('matrix/features')
-        features.create_dataset('_all_tag_keys', (1,),'S6', data=all_tag_keys)
-        features.create_dataset('feature_type', data=np.array([b'Gene Expression'] * SHAPET[0]))
-        features.create_dataset('genome', data=np.array([GENOME.encode()] * SHAPET[0]))
-        features.create_dataset('id', data=FEATURE_IDS)
-        features.create_dataset('name', data=FEATURES)
-
-        f.attrs['chemistry_description'] = CHEMISTRY.encode()
-        f.attrs['filetype'] = 'matrix'
-        f.attrs['library_ids'] = LIBRARY_ID.encode()
-        f.attrs['original_gem_groups'] = ORIG_GEM_GROUPS
-        f.attrs['version'] = 2
-        f.close()
-
-def get_metadata(bamfile):
-    """
-    Read Library ID from bam file.
-    """
-    alignments = pysam.AlignmentFile(bamfile, "rb")
-
-    # Need a backup if this step fails...
-    # Is this even compatible with other versions of Cellranger?
-    LIBRARY_ID = alignments.header.to_dict()['RG'][0]['SM']
-
-    UMILENS = {}
-    # Read the first 10000 lines and get UMI lengths
-    for aln in alignments.head(10000):
-                if aln.has_tag("CB"):
-                    if aln.has_tag("UB"):
-                        UMILEN=len(aln.get_tag("UB"))
-                        UMILENS[UMILEN] = UMILENS.get(UMILEN, 0) + 1
-
-    PREDOMINANT_UMILEN = max(UMILENS, key=UMILENS.get)
-
-    if PREDOMINANT_UMILEN == 12:
-        CHEMISTRY = 'Single Cell 3\' v3'
-    elif PREDOMINANT_UMILEN == 10:
-        CHEMISTRY = 'Single Cell 3\' v2'
-    else:
-        CHEMISTRY = 'unspecified_chemistry'
-
-    ## Get the barcode whitelist for the relevenat chemistry
-    #BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY,FILES_PATH)
-    BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY)
-
-    return CHEMISTRY, LIBRARY_ID, BC_WHITELIST
-
-
-
-def fetch_barcode_whitelist(CHEMISTRY):
-# removed FILES_PATH from argument
-    #VALID_CHEMISTRIES = {
-    #    'Single Cell 3\' v2':os.path.join(FILES_PATH,'737K-august-2016.txt.gz'),
-    #    'Single Cell 3\' v3':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
-    #    'unspecified_chemistry':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
-    #}
-    VALID_CHEMISTRIES = {
-        'Single Cell 3\' v2':'../files/737K-august-2016.txt.gz',
-        'Single Cell 3\' v3':'../files/3M-february-2018.txt.gz',
-        'unspecified_chemistry':'../files/3M-february-2018.txt.gz'
-    }
-    WHITELIST_FILE = VALID_CHEMISTRIES[CHEMISTRY]
-
-    if CHEMISTRY == 'unspecified_chemistry':
-        print('Warning, unknown chemistry detected.  Defaulting to 10X Genomics Single Cell 3\' v3')
-
-    BC_WHITELIST = set()
-    with gzip.open(WHITELIST_FILE, mode='rb') as f:
-        for line in f:
-            BC_WHITELIST.add(line.decode('utf-8').strip())
-    return BC_WHITELIST
-
 ####### STOLEN AND BORKED, STILL TODO
 """
 
@@ -475,6 +352,13 @@ def main(args):
     raw_feature_bc_matrix = sc.read_10x_h5(args.raw)
     raw_feature_bc_matrix.var_names_make_unique()
     raw_with_miRNAs = miRNA_to_featureMatrix(results, raw_feature_bc_matrix)
+
+    outfile=os.path.join(outdir,'raw_feature_matrix_with_miRNAs.h5')
+    raw_with_miRNAs.write(outfile)
+
+    # testing purposes
+    foo = sc.read(outfile)
+    print('Foo dimensions: ', foo)
     print('Done with part 2!')
 
 if __name__ == '__main__':

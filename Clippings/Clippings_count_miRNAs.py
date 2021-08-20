@@ -358,17 +358,24 @@ def main(args):
 
     # testing purposes
     foo = sc.read(outfile)
-    print('Foo dimensions: ', foo)
+    print('miRNA table dimensions: ', foo)
+
+    if args.results_table == True:
+        print('Writing miRNAs_result_table')
+        results.to_csv(os.path.join(outdir, 'miRNAs_result_table.csv'), index=True)
+
     print('Done with part 2!')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('BAMFILE', help='Input bam file')
     parser.add_argument('REFERENCE_FILE', help='miRBase gff3 file')
-    parser.add_argument('--out', dest='out', help='Output folder', default="raw_clipped_features_matrix")
+    parser.add_argument('--out', dest='out', help='Output folder', default="raw_feature_matrix_with_miRNAs")
     parser.add_argument('--genome', dest='genome', help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
-    parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
+    #need to implement .mtx
+    #parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
     parser.add_argument('--raw', dest='raw', help='10x Genomics raw feature bc matrix to concatenate miRNAs to')
+    parser.add_argument('--results_table', dest='results_table', help='Write out results table of reading miRNAs as csv', default=True)
 
     if len(sys.argv) == 1:
         parser.print_help()

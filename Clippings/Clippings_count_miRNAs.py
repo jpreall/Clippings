@@ -44,12 +44,16 @@ import scanpy as sc
 
 def attributes_to_columns_from_mirbase_GFF3(file):
     """
-    Inputs:
-        file: .gff3 formatted file with miRNA annotations downloaded from miRBase
+    Given a GFF3 file from mirbase, turn attributes into pandas dataframe columns.
 
-    Outputs:
-        pandas dataframe with all gff3 attributes exapanded to columns
+    Args:
+        file (string path): Path to .gff3 formatted file with miRNA annotations downloaded from miRBase.
+
+    Returns:
+        pandas DataFrame: Dataframe with columns containing the attributes from GFF3 file.
+
     """
+
     print("Starting attirubtes_to_columns_from_mirbase_GFF3: ", time.asctime())
 
     import pandas as pd
@@ -85,12 +89,26 @@ def attributes_to_columns_from_mirbase_GFF3(file):
     return miRNA_anno_df
 
 def dict_of_parent_names(miRNA_anno_df):
+    """Extracts primary transcripts and returns a dictionary of ID and Name"""
     PARENT_DF = miRNA_anno_df[miRNA_anno_df['feature'] == 'miRNA_primary_transcript']
     PARENT_DICT = dict(zip(PARENT_DF['ID'],PARENT_DF['Name']))
     return PARENT_DICT
 
 
 def make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, PARENT_DICT):
+    """
+    Creates dictionary of chromosome to miRNA and it's drosha coordinates.
+
+    Args:
+        miRNA_anno_df (pandas DataFrame): Dataframe with columns containing the attributes from GFF3 file.
+        PARENT_DICT (dict): Dictionary of ID to Name of only primary transcripts.
+
+    Returns:
+        dict: Dictionary of chromosome as key and value as default dict.
+        Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
+
+    """
+
     #Only consider entries with a clearly marked 3p arm:
     print("Starting make_dictionary_of_miRNA_Drosha_coords: ", time.asctime())
 
@@ -129,8 +147,18 @@ def make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, PARENT_DICT):
 
 def fix_chr_chromnames(chrom_dict, BAM):
     """
-    check if BAM files using 'chr' prefix on chromosome names and fix the dictionary, if necessary
+    Checks if BAM file is using 'chr' prefix on chromosome names and fixes the dictionary if necessary.
+
+    Args:
+        chrom_dict (dict): Dictionary of chromosome as key and value as default dict.
+            Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
+        BAM (bamfile): Bamfile produced by 10x Genomics' CellRanger
+
+    Returns:
+        dict: Updated version of chrom_dict with correct 'chr' prefix.
+
     """
+
     print("Starting fix_chr_chromnames: ", time.asctime())
     bamfile = pysam.AlignmentFile(BAM, "rb")
 
@@ -151,6 +179,25 @@ def fix_chr_chromnames(chrom_dict, BAM):
 
 
 def count_miRNAs(BAM, chrom_dict, flanks=0):
+    """
+    Reads bamfile and stores read information into a pandas DataFrame and counts number
+    of each miRNA.
+
+    Args:
+        BAM (bamfile): Bamfile produced by 10x Genomics' CellRanger
+        chrom_dict (dict): Dictionary of chromosome as key and value as default dict.
+            Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
+        flanks (int): Default 0.
+
+    Returns:
+        (tuple): tuple containing:
+
+            count_table (pandas DataFrame): Dataframe of counts of each miRNA.
+            example_read (pysam AlignmentSegment): Read as AlignmentSegment.
+            results (pandas DataFrame): Dataframe of all reads and info from pysam.
+
+    """
+
     print("Starting count_miRNAs: ", time.asctime())
     import collections
     example_read = None
@@ -293,14 +340,12 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     Add miRNAs to raw feature bc matrix.
 
     Args:
-        count_miRNAs_result (pandas df): dataframe output from count_miRNAs()
-        raw_feature_bc_matrix (anndata):
+        count_miRNAs_result (pandas df): Dataframe output from count_miRNAs() containing
+            all the information from pysam read alignments.
+        raw_feature_bc_matrix (anndata): Raw matrix produced by 10x Genomics' CellRanger.
 
     Returns:
-        type: description
-
-    Raises:
-        Exception: description
+        AnnData: Raw matrix with miRNAs tacked onto the variable columns (gene names)
 
     """
     # # https://stackoverflow.com/questions/22412033/python-pandas-pivot-table-count-frequency-in-one-column

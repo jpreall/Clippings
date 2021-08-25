@@ -72,23 +72,24 @@ def _parse_cmdl(cmdl):
 
 
 class ReadCounter(ParaReadProcessor):
-    """
-    Create child class ReadCounter from parent ParaReadProcessor.
+    """Create child class ReadCounter from parent ParaReadProcessor.
 
     ReadCounter contains additional arguements such as feature dictionary
     and transcription start site dictionary.
 
-    Args:
-        ParaReadProcessor (ParaReadProcessor): base class for parallel
-        processing of sequencing reads
-
-    Methods:
-        init
-        call
-
     """
 
     def __init__(self, *args, **kwargs):
+        """
+        Extension of ParaReadProcessor class.
+
+        Args:
+            *args (list): ParaReadProcessor arguments.
+            **kwargs (list): List containing additional 'features', 'TSSdictionary', and
+                'write_degraded_bam_file' arguments.
+
+        """
+
         if 'features' in kwargs:
             features = kwargs.pop('features')
         else:
@@ -109,18 +110,8 @@ class ReadCounter(ParaReadProcessor):
         self._write_degraded_bam_file = write_degraded_bam_file
 
     def __call__(self, chromosome, _=None):
-        """
-        For each chromosome, perform a specific action such as building the
-        degradation dictionary.
-
-        Args:
-            chromosome (chromosome): description
-
-        Returns:
-            chromosome: description
-
-        Raises:
-            None
+        """For each chromosome, perform a specific action such as building the
+        degradation dictionary and writing out as a json file to be read in later.
 
         """
 
@@ -155,18 +146,19 @@ class ReadCounter(ParaReadProcessor):
 
 def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_file):
     """
-    A short description.
+    Go through every read and create a degradation dictionary of barcode and counts.
 
-    A bit longer description.
+    For uniquely mapped, exonic reads with tso tags, get cell barcode, gene id and
+    gene name tags. Creates a dictionary if cell barcode and degraded counts.
 
     Args:
-        variable (type): description
+        chunk (type): A chunk (chromosome) of sequencing reads from bam file.
+        TSS_dict (dict): Dictionary of transcription start sites.
+        feature_dictionary (dict): Dictionary of gene ids and gene names.
+        write_degraded_bam_file (bool): True to write a degraded bam file. False to not.
 
     Returns:
-        type: description
-
-    Raises:
-        Exception: description
+        dict: Dictionary of cell barcodes and degraded counts.
 
     """
 
@@ -288,17 +280,14 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
 
 def merge_dicts(*dicts):
     """
-    Merge each chromosome dictionary of barcodes, genes, and umi counts to a
-    single degradation dictionary
+    Merge each chromosome/chunk dictionary of barcodes, genes, and umi counts into a
+    single degradation dictionary.
 
     Args:
-        variable (type): description
+        *dicts (tuple): Tuple of degradation dictionaries for each chunk/chromosome to be merged.
 
     Returns:
-        type: description
-
-    Raises:
-        Exception: description
+        dict: A merged dictionary containing all the keys and values for given tuple of dictionaries.
 
     """
 

@@ -27,7 +27,8 @@ INSTALL_REQUIRES = [
       'h5sparse',
       'gtfparse',
       'anndata',
-      'pararead'
+      'pararead',
+      'logmuse'
 ]
 
 setup(name=PACKAGE_NAME,

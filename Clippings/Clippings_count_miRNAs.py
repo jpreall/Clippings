@@ -376,12 +376,13 @@ def main(args):
     genome = args.genome
 
     if os.path.isdir(outdir):
-        overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
-        if overwrite.lower() == 'n':
-            exit(0)
-        elif overwrite.lower() == 'y':
-            shutil.rmtree(outdir)
-
+        #overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
+        #if overwrite.lower() == 'n':
+        #    exit(0)
+        #elif overwrite.lower() == 'y':
+        #    shutil.rmtree(outdir)
+        # Commented out above because if used as script (as it is now), there is no user input
+        print('Output directory already exists')
     os.mkdir(outdir)
 
     print('Reading in gff3 file ...')

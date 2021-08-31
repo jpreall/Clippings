@@ -31,11 +31,7 @@ from pararead import ParaReadProcessor
 import logmuse
 import json
 import glob
-
 import os.path as path
-# FileNotFoundError: [Errno 2] No such file or directory: '/cm/local/apps/uge/var/spool.p7444/bam08/files/3M-february-2018.txt.gz'
-#FILES_PATH =  path.abspath(path.join(path.dirname(__file__) ,"../files/"))
-
 
 def _parse_cmdl(cmdl):
     """ Define and parse command-line interface. """
@@ -429,10 +425,11 @@ def write_10x_h5(data_dictionary, feature_dictionary, output_folder, LIBRARY_ID=
         f.attrs['version'] = 2
         f.close()
 
-def get_metadata(bamfile):
+def get_metadata(bamfile, FILES_PATH):
     """
     Read Library ID from bam file.
     """
+    print("get_metadata FILES_PATH: ", FILES_PATH)
     alignments = pysam.AlignmentFile(bamfile, "rb")
 
     # Need a backup if this step fails...
@@ -457,25 +454,26 @@ def get_metadata(bamfile):
         CHEMISTRY = 'unspecified_chemistry'
 
     ## Get the barcode whitelist for the relevenat chemistry
-    #BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY,FILES_PATH)
-    BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY)
+    BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY, FILES_PATH)
+    #BC_WHITELIST = fetch_barcode_whitelist(CHEMISTRY)
 
     return CHEMISTRY, LIBRARY_ID, BC_WHITELIST
 
 
 
-def fetch_barcode_whitelist(CHEMISTRY):
+def fetch_barcode_whitelist(CHEMISTRY, FILES_PATH):
+    print("fetch_barcode_whitelist FILES_PATH: ", FILES_PATH)
 # removed FILES_PATH from argument
-    #VALID_CHEMISTRIES = {
-    #    'Single Cell 3\' v2':os.path.join(FILES_PATH,'737K-august-2016.txt.gz'),
-    #    'Single Cell 3\' v3':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
-    #    'unspecified_chemistry':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
-    #}
     VALID_CHEMISTRIES = {
-        'Single Cell 3\' v2':'../files/737K-august-2016.txt.gz',
-        'Single Cell 3\' v3':'../files/3M-february-2018.txt.gz',
-        'unspecified_chemistry':'../files/3M-february-2018.txt.gz'
+        'Single Cell 3\' v2':os.path.join(FILES_PATH,'737K-august-2016.txt.gz'),
+        'Single Cell 3\' v3':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
+        'unspecified_chemistry':os.path.join(FILES_PATH,'3M-february-2018.txt.gz'),
     }
+    #VALID_CHEMISTRIES = {
+    #    'Single Cell 3\' v2':'../files/737K-august-2016.txt.gz',
+    #    'Single Cell 3\' v3':'../files/3M-february-2018.txt.gz',
+    #    'unspecified_chemistry':'../files/3M-february-2018.txt.gz'
+    #}
     WHITELIST_FILE = VALID_CHEMISTRIES[CHEMISTRY]
 
     if CHEMISTRY == 'unspecified_chemistry':
@@ -517,6 +515,9 @@ def main(cmdl):
     """
     runner
     """
+    # FileNotFoundError: [Errno 2] No such file or directory: '/cm/local/apps/uge/var/spool.p7444/bam08/files/3M-february-2018.txt.gz'
+    FILES_PATH =  path.abspath(path.join(path.dirname(__file__) ,"../files/"))
+    print("This is the absolute file path: ", FILES_PATH)
 
     import os
     args = _parse_cmdl(cmdl)
@@ -591,7 +592,7 @@ def main(cmdl):
 
     print('Gathering metadata from bam file...')
     print('Time started:',time.asctime())
-    CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.readsfile)
+    CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.readsfile, FILES_PATH)
 
     #write 10X mtx format
     if args.mtx:

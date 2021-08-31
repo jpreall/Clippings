@@ -23,13 +23,12 @@ INSTALL_REQUIRES = [
       'seaborn',
       'pysam',
       'argparse',
-      'scanpy',
       'h5py',
-      'numpy',
-      'pandas',
-      'scipy',
       'h5sparse',
-      'gtfparse'
+      'gtfparse',
+      'anndata',
+      'pararead',
+      'logmuse'
 ]
 
 setup(name=PACKAGE_NAME,

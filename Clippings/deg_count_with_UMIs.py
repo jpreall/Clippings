@@ -371,7 +371,8 @@ def write_10x_h5(data_dictionary, feature_dictionary, output_folder, LIBRARY_ID=
     SHAPE = (len(barcodes),len(feature_dictionary.keys()))
 
     #Declare the output h5 file:
-    outfile=os.path.join(output_folder,'raw_clipped_features_matrix.h5')
+    #outfile=os.path.join(output_folder,'raw_clipped_features_matrix.h5')
+    outfile='raw_clipped_features_matrix.h5'
     print('Writing to '+outfile)
 
     # Encode Cell Barcodes
@@ -528,16 +529,18 @@ def main(cmdl):
     genome = args.genome
     write_degraded_bam = args.write_degraded_bam_file
 
-    if os.path.isdir(outdir):
+    #if os.path.isdir(outdir):
         #overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
         #if overwrite.lower() == 'n':
         #    exit(0)
         #elif overwrite.lower() == 'y':
         #    shutil.rmtree(outdir)
         # Commented out above because if used as script (as it is now), there is no user input
-        print('Output directory already exists')
-    os.mkdir(outdir)
+        #print('Output directory already exists')
+    assert not os.path.isdir(outdir), "Output directory already exists"
 
+    os.mkdir(outdir)
+    os.chdir(outdir)
 
     _LOGGER.debug("Run dict of TSSes")
     if args.TSSgtf != None:
@@ -604,11 +607,13 @@ def main(cmdl):
             print("I/O error")
 
     ##write 10X h5 format
-    try:
-        print('Writing 10X-formatted h5 file...', time.asctime())
-        write_10x_h5(mergedDict, feature_dictionary, outdir, LIBRARY_ID, CHEMISTRY, genome=genome)
-    except IOError:
-        print("I/O error")
+    #try:
+    #    print('Writing 10X-formatted h5 file...', time.asctime())
+    #    write_10x_h5(mergedDict, feature_dictionary, outdir, LIBRARY_ID, CHEMISTRY, genome=genome)
+    #except IOError:
+    #    print("I/O error")
+    print('Writing 10X-formatted h5 file...', time.asctime())
+    write_10x_h5(mergedDict, feature_dictionary, outdir, LIBRARY_ID, CHEMISTRY, genome=genome)
 
     print('Done!', time.asctime())
 

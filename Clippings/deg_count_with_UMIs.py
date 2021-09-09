@@ -33,6 +33,8 @@ import json
 import glob
 import os.path as path
 import pkg_resources
+import collections
+from collections import defaultdict
 
 def _parse_cmdl(cmdl):
     """ Define and parse command-line interface. """
@@ -283,9 +285,6 @@ def merge_dicts(*dicts):
 
     """
 
-    import collections
-    from collections import defaultdict
-
     merged = defaultdict(dict)
 
     for d in dicts:
@@ -326,7 +325,7 @@ def count_dict_to_sparse_matrix(data_dictionary, feature_dictionary):
     return MATRIX, barcodes
 
 
-def write_10_mtx(data_dictionary, feature_dictionary, output_folder):
+def write_10_mtx(data_dictionary, feature_dictionary):
     """
     Check to make sure this feature works
     write degraded counts to mtx format
@@ -336,7 +335,8 @@ def write_10_mtx(data_dictionary, feature_dictionary, output_folder):
     MATRIX, barcodes = count_dict_to_sparse_matrix(data_dictionary, feature_dictionary)
 
     ## write barcodes.tsv.gz
-    barcodes_file = gzip.open(os.path.join(output_folder,'barcodes.tsv.gz'), 'wt')
+    #barcodes_file = gzip.open(os.path.join(output_folder,'barcodes.tsv.gz'), 'wt')
+    barcodes_file = gzip.open('barcodes.tsv.gz', 'wt')
     writer = csv.writer(barcodes_file, delimiter='\t')
     for line in barcodes:
         writer.writerow([line])
@@ -344,20 +344,27 @@ def write_10_mtx(data_dictionary, feature_dictionary, output_folder):
 
     ## write features.tsv.gz
     features = list(feature_dictionary.keys())
-    features_file = gzip.open(os.path.join(output_folder,'features.tsv.gz'), 'wt')
+    #features_file = gzip.open(os.path.join(output_folder,'features.tsv.gz'), 'wt')
+    features_file = gzip.open('features.tsv.gz', 'wt')
     writer = csv.writer(features_file, delimiter='\t')
     for line in feature_dictionary:
         writer.writerow([line,feature_dictionary[line],'Gene Expression'])
     features_file.close()
 
  	# Write the matrix
-    io.mmwrite(os.path.join(output_folder,"matrix.mtx"), MATRIX)
-    with open(os.path.join(output_folder,"matrix.mtx"),'rb') as mtx_in:
-        with gzip.open(os.path.join(output_folder,"matrix.mtx.gz"),'wb') as mtx_gz:
-            shutil.copyfileobj(mtx_in, mtx_gz)
-    os.remove(os.path.join(output_folder,"matrix.mtx") )
+    #io.mmwrite(os.path.join(output_folder,"matrix.mtx"), MATRIX)
+    #with open(os.path.join(output_folder,"matrix.mtx"),'rb') as mtx_in:
+    #    with gzip.open(os.path.join(output_folder,"matrix.mtx.gz"),'wb') as mtx_gz:
+    #        shutil.copyfileobj(mtx_in, mtx_gz)
+    #os.remove(os.path.join(output_folder,"matrix.mtx") )
 
-def write_10x_h5(data_dictionary, feature_dictionary, output_folder, LIBRARY_ID=None, CHEMISTRY=None, genome=None):
+    io.mmwrite('matrix.mtx', MATRIX)
+    with open('matrix.mtx','rb') as mtx_in:
+        with gzip.open('matrix.mtx.gz','wb') as mtx_gz:
+            shutil.copyfileobj(mtx_in, mtx_gz)
+    os.remove('matrix.mtx')
+
+def write_10x_h5(data_dictionary, feature_dictionary, LIBRARY_ID=None, CHEMISTRY=None, genome=None):
     """
     write degraded counts to h5 format
     """
@@ -590,10 +597,12 @@ def main(cmdl):
     if args.mtx:
         try:
             print('Writing 10X-formatted mtx directory...', time.asctime())
-            write_10_mtx(mergedDict, feature_dictionary, outdir)
+            write_10_mtx(mergedDict, feature_dictionary)
 
         except IOError:
             print("I/O error")
+    #print('Writing 10X-formatted mtx directory...', time.asctime())
+    #write_10_mtx(mergedDict, feature_dictionary)
 
     ##write 10X h5 format
     #try:
@@ -602,7 +611,7 @@ def main(cmdl):
     #except IOError:
     #    print("I/O error")
     print('Writing 10X-formatted h5 file...', time.asctime())
-    write_10x_h5(mergedDict, feature_dictionary, outdir, LIBRARY_ID, CHEMISTRY, genome=genome)
+    write_10x_h5(mergedDict, feature_dictionary, LIBRARY_ID, CHEMISTRY, genome=genome)
 
     print('Done!', time.asctime())
 

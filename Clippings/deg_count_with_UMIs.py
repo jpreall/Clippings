@@ -33,6 +33,8 @@ import json
 import glob
 import os.path as path
 import pkg_resources
+import collections
+from collections import defaultdict
 
 def _parse_cmdl(cmdl):
     """ Define and parse command-line interface. """
@@ -46,22 +48,17 @@ def _parse_cmdl(cmdl):
         "readsfile", help="Path to sequencing reads file (bam file).")
 
     parser.add_argument(
-        "-O", "--outfile", required=True, help="Path to output file.")
+        "-D", "--outdictionary", help="Path to output dictionary.", default="dictionary.txt")
 
     parser.add_argument(
-        "-C", "--cores", required=True, default=1, help="Number of cores.")
-
-    # may need to delete this. Not sure what exact functionality is
-    parser.add_argument('-t', '--limit', dest='limit',
-        help="Limit to these chromosomes", nargs = "+", default=None)
+        "-C", "--cores", default=10, help="Number of cores.")
 
     parser.add_argument(
         "-TSS", "--TSSgtf", help="Path to gtf file.")
 
-    parser.add_argument('--out', dest='out', help='Output folder', default="raw_clipped_features_matrix")
+    parser.add_argument('--outdir', dest='outdir', help='Output folder', default="deg_raw_clipped")
     parser.add_argument('--genome', dest='genome', help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
     parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
-    parser.add_argument('--miRNAgtf', dest='miRNAgtf', help='GTF file for assigning TSO-reads to miRNA cropping sites', default=None)
     parser.add_argument('--write_degraded_bam_file', dest='write_degraded_bam_file', help='Writes all TSS filtered reads to a file called degraded_not_TSS.bam in parent directory', default=False)
 
     parser = logmuse.add_logging_options(parser)
@@ -288,9 +285,6 @@ def merge_dicts(*dicts):
 
     """
 
-    import collections
-    from collections import defaultdict
-
     merged = defaultdict(dict)
 
     for d in dicts:
@@ -331,7 +325,7 @@ def count_dict_to_sparse_matrix(data_dictionary, feature_dictionary):
     return MATRIX, barcodes
 
 
-def write_10_mtx(data_dictionary, feature_dictionary, output_folder):
+def write_10_mtx(data_dictionary, feature_dictionary):
     """
     Check to make sure this feature works
     write degraded counts to mtx format
@@ -341,7 +335,8 @@ def write_10_mtx(data_dictionary, feature_dictionary, output_folder):
     MATRIX, barcodes = count_dict_to_sparse_matrix(data_dictionary, feature_dictionary)
 
     ## write barcodes.tsv.gz
-    barcodes_file = gzip.open(os.path.join(output_folder,'barcodes.tsv.gz'), 'wt')
+    #barcodes_file = gzip.open(os.path.join(output_folder,'barcodes.tsv.gz'), 'wt')
+    barcodes_file = gzip.open('barcodes.tsv.gz', 'wt')
     writer = csv.writer(barcodes_file, delimiter='\t')
     for line in barcodes:
         writer.writerow([line])
@@ -349,20 +344,27 @@ def write_10_mtx(data_dictionary, feature_dictionary, output_folder):
 
     ## write features.tsv.gz
     features = list(feature_dictionary.keys())
-    features_file = gzip.open(os.path.join(output_folder,'features.tsv.gz'), 'wt')
+    #features_file = gzip.open(os.path.join(output_folder,'features.tsv.gz'), 'wt')
+    features_file = gzip.open('features.tsv.gz', 'wt')
     writer = csv.writer(features_file, delimiter='\t')
     for line in feature_dictionary:
         writer.writerow([line,feature_dictionary[line],'Gene Expression'])
     features_file.close()
 
  	# Write the matrix
-    io.mmwrite(os.path.join(output_folder,"matrix.mtx"), MATRIX)
-    with open(os.path.join(output_folder,"matrix.mtx"),'rb') as mtx_in:
-        with gzip.open(os.path.join(output_folder,"matrix.mtx.gz"),'wb') as mtx_gz:
-            shutil.copyfileobj(mtx_in, mtx_gz)
-    os.remove(os.path.join(output_folder,"matrix.mtx") )
+    #io.mmwrite(os.path.join(output_folder,"matrix.mtx"), MATRIX)
+    #with open(os.path.join(output_folder,"matrix.mtx"),'rb') as mtx_in:
+    #    with gzip.open(os.path.join(output_folder,"matrix.mtx.gz"),'wb') as mtx_gz:
+    #        shutil.copyfileobj(mtx_in, mtx_gz)
+    #os.remove(os.path.join(output_folder,"matrix.mtx") )
 
-def write_10x_h5(data_dictionary, feature_dictionary, output_folder, LIBRARY_ID=None, CHEMISTRY=None, genome=None):
+    io.mmwrite('matrix.mtx', MATRIX)
+    with open('matrix.mtx','rb') as mtx_in:
+        with gzip.open('matrix.mtx.gz','wb') as mtx_gz:
+            shutil.copyfileobj(mtx_in, mtx_gz)
+    os.remove('matrix.mtx')
+
+def write_10x_h5(data_dictionary, feature_dictionary, LIBRARY_ID=None, CHEMISTRY=None, genome=None):
     """
     write degraded counts to h5 format
     """
@@ -372,7 +374,6 @@ def write_10x_h5(data_dictionary, feature_dictionary, output_folder, LIBRARY_ID=
     SHAPE = (len(barcodes),len(feature_dictionary.keys()))
 
     #Declare the output h5 file:
-    #outfile=os.path.join(output_folder,'raw_clipped_features_matrix.h5')
     outfile='raw_clipped_features_matrix.h5'
     print('Writing to '+outfile)
 
@@ -520,7 +521,7 @@ def main(cmdl):
     global _LOGGER
     _LOGGER = logmuse.logger_via_cli(args, make_root=True)
 
-    outdir = args.out
+    outdir = args.outdir
     genome = args.genome
     write_degraded_bam = args.write_degraded_bam_file
 
@@ -553,8 +554,8 @@ def main(cmdl):
 
     _LOGGER.debug("Creating counter")
     counter = ReadCounter(args.readsfile, cores=args.cores,
-                          outfile=args.outfile, action="CountReads",
-                          limit=args.limit, TSSdictionary=TSS_dict, features=feature_dictionary,
+                          outfile=args.outdictionary, action="CountReads",
+                          TSSdictionary=TSS_dict, features=feature_dictionary,
                           write_degraded_bam_file=write_degraded_bam)
     print('****MAIN STEP****: FINISHED THE READCOUNTER', time.asctime())
 
@@ -566,7 +567,7 @@ def main(cmdl):
     good_chromosomes = counter.run()
     print('****MAIN STEP****: FINISHED counter.run()', time.asctime())
 
-    _LOGGER.info("Collecting read counts: {}".format(args.outfile))
+    _LOGGER.info("Collecting read counts: {}".format(args.outdictionary))
     counter.combine(good_chromosomes, chrom_sep="\n")
     print('****MAIN STEP****: FINISHED COMBINING', time.asctime())
 
@@ -596,10 +597,12 @@ def main(cmdl):
     if args.mtx:
         try:
             print('Writing 10X-formatted mtx directory...', time.asctime())
-            write_10_mtx(mergedDict, feature_dictionary, outdir)
+            write_10_mtx(mergedDict, feature_dictionary)
 
         except IOError:
             print("I/O error")
+    #print('Writing 10X-formatted mtx directory...', time.asctime())
+    #write_10_mtx(mergedDict, feature_dictionary)
 
     ##write 10X h5 format
     #try:
@@ -608,7 +611,7 @@ def main(cmdl):
     #except IOError:
     #    print("I/O error")
     print('Writing 10X-formatted h5 file...', time.asctime())
-    write_10x_h5(mergedDict, feature_dictionary, outdir, LIBRARY_ID, CHEMISTRY, genome=genome)
+    write_10x_h5(mergedDict, feature_dictionary, LIBRARY_ID, CHEMISTRY, genome=genome)
 
     print('Done!', time.asctime())
 

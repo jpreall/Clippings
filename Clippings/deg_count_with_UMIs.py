@@ -46,22 +46,17 @@ def _parse_cmdl(cmdl):
         "readsfile", help="Path to sequencing reads file (bam file).")
 
     parser.add_argument(
-        "-O", "--outfile", required=True, help="Path to output file.")
+        "-D", "--outdictionary", help="Path to output dictionary.", default="dictionary.txt")
 
     parser.add_argument(
-        "-C", "--cores", required=True, default=1, help="Number of cores.")
-
-    # may need to delete this. Not sure what exact functionality is
-    parser.add_argument('-t', '--limit', dest='limit',
-        help="Limit to these chromosomes", nargs = "+", default=None)
+        "-C", "--cores", default=10, help="Number of cores.")
 
     parser.add_argument(
         "-TSS", "--TSSgtf", help="Path to gtf file.")
 
-    parser.add_argument('--out', dest='out', help='Output folder', default="raw_clipped_features_matrix")
+    parser.add_argument('--outdir', dest='outdir', help='Output folder', default="deg_raw_clipped")
     parser.add_argument('--genome', dest='genome', help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
     parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
-    parser.add_argument('--miRNAgtf', dest='miRNAgtf', help='GTF file for assigning TSO-reads to miRNA cropping sites', default=None)
     parser.add_argument('--write_degraded_bam_file', dest='write_degraded_bam_file', help='Writes all TSS filtered reads to a file called degraded_not_TSS.bam in parent directory', default=False)
 
     parser = logmuse.add_logging_options(parser)
@@ -372,7 +367,6 @@ def write_10x_h5(data_dictionary, feature_dictionary, output_folder, LIBRARY_ID=
     SHAPE = (len(barcodes),len(feature_dictionary.keys()))
 
     #Declare the output h5 file:
-    #outfile=os.path.join(output_folder,'raw_clipped_features_matrix.h5')
     outfile='raw_clipped_features_matrix.h5'
     print('Writing to '+outfile)
 
@@ -520,7 +514,7 @@ def main(cmdl):
     global _LOGGER
     _LOGGER = logmuse.logger_via_cli(args, make_root=True)
 
-    outdir = args.out
+    outdir = args.outdir
     genome = args.genome
     write_degraded_bam = args.write_degraded_bam_file
 
@@ -553,8 +547,8 @@ def main(cmdl):
 
     _LOGGER.debug("Creating counter")
     counter = ReadCounter(args.readsfile, cores=args.cores,
-                          outfile=args.outfile, action="CountReads",
-                          limit=args.limit, TSSdictionary=TSS_dict, features=feature_dictionary,
+                          outfile=args.outdictionary, action="CountReads",
+                          TSSdictionary=TSS_dict, features=feature_dictionary,
                           write_degraded_bam_file=write_degraded_bam)
     print('****MAIN STEP****: FINISHED THE READCOUNTER', time.asctime())
 
@@ -566,7 +560,7 @@ def main(cmdl):
     good_chromosomes = counter.run()
     print('****MAIN STEP****: FINISHED counter.run()', time.asctime())
 
-    _LOGGER.info("Collecting read counts: {}".format(args.outfile))
+    _LOGGER.info("Collecting read counts: {}".format(args.outdictionary))
     counter.combine(good_chromosomes, chrom_sep="\n")
     print('****MAIN STEP****: FINISHED COMBINING', time.asctime())
 

@@ -9,8 +9,15 @@ Count mapped reads harboring TSO sub-sequene.
 ```
 (your_env) $ git clone https://github.com/jpreall/Clippings.git
 (your_env) $ pip install -e Clippings
+```
 
 ## Example Usage
-(your_env) $ qsub -R y -l m_mem_free=8G -pe threads 16 deg_count_with_UMIs.py [path_to_bam_file] --outfile [output_dictionary_textName]  --cores 12 --TSSgtf [path_to_gtf] --out [output_folder_name] --genome [path_to_genome]
-
-
+### 1. deg_count_with_UMIs.py 
+```
+# Highly recommend user to submit as a job if using HPC in order to prevent over overuse of resources. This should take 5-10 minutes.
+(your_env) $ python deg_count_with_UMIs.py [path_to_bam_file] --TSS [path_to_gtf] --outdir [output_folder_name] --genome [path_to_genome]
+```
+### 2. Clippings_count_miRNAs.py
+```
+(your_env) $ python Clippings_count_miRNAs.py [path_to_bam_file] [path_to_gff3] --outdir [output_folder_name] --genome [path_to_genome] --raw [path_to_raw_matrix]
+```

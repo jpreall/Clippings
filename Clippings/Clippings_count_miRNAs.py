@@ -4,7 +4,7 @@
 """
 Clippings_count_miRNAs.py
 
-Count mapped reads harboring TSO sub-subsequence.
+Count mapped reads harboring TSO sub-subsequence. Only works with CellRanger 4.0+ outputs.
 
 
 Inputs:
@@ -372,7 +372,7 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     return raw_with_miRNAs
 
 def main(args):
-    outdir = args.out
+    outdir = args.outdir
     genome = args.genome
 
     if os.path.isdir(outdir):
@@ -416,11 +416,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('BAMFILE', help='Input bam file')
     parser.add_argument('REFERENCE_FILE', help='miRBase gff3 file')
-    parser.add_argument('--out', dest='out', help='Output folder', default="raw_feature_matrix_with_miRNAs")
+    parser.add_argument('--outdir', dest='outdir', help='Output folder', default="raw_feature_matrix_with_miRNAs")
     parser.add_argument('--genome', dest='genome', help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
     #need to implement .mtx
     #parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
-    parser.add_argument('--raw', dest='raw', help='10x Genomics raw feature bc matrix to concatenate miRNAs to')
+    parser.add_argument('--raw', dest='raw', required=True, help='10x Genomics raw feature bc matrix to concatenate miRNAs to')
     parser.add_argument('--results_table', dest='results_table', help='Write out results table of reading miRNAs as csv', default=True)
 
     if len(sys.argv) == 1:

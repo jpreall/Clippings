@@ -399,6 +399,7 @@ def main(args):
     raw_feature_bc_matrix.var_names_make_unique()
     raw_with_miRNAs = miRNA_to_featureMatrix(results, raw_feature_bc_matrix)
 
+    # should we specify .h5ad?
     outfile=os.path.join(outdir,'raw_feature_matrix_with_miRNAs.h5')
     raw_with_miRNAs.write(outfile)
 

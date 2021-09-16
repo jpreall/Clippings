@@ -364,10 +364,11 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     # transpose and join outer
     print('raw_feature_bc_matrix dimensions: ', raw_feature_bc_matrix)
     print('barcode_miRNA_adata dimensions: ', barcode_miRNA_adata)
-    tmp_combine = raw_feature_bc_matrix.T.concatenate(barcode_miRNA_adata.T, join='outer')
+    tmp_combine = raw_feature_bc_matrix.T.concatenate(barcode_miRNA_adata.T, join='outer', index_unique=None)
     print('transpose merged dimensions: ', tmp_combine)
     raw_with_miRNAs = tmp_combine.T
     print('raw_with_miRNAs dimensions: ', raw_with_miRNAs)
+    print('raw_with_miRNAs var_names: ', raw_with_miRNAs.var_names)
     del tmp_combine
     return raw_with_miRNAs
 

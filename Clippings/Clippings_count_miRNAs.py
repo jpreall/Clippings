@@ -359,7 +359,8 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     barcode_miRNA_adata.var['gene_ids'] = barcode_miRNA_adata.var_names
     barcode_miRNA_adata.var['feature_types'] = raw_feature_bc_matrix.var['feature_types'][0]
     barcode_miRNA_adata.var['genome'] = raw_feature_bc_matrix.var['genome'][0]
-
+    # rename all mirbase genes for clarity
+    barcode_miRNA_adata.var_names = list(micro for micro in barcode_miRNA_adata.var_names + '_DroshaProd')
 
     # transpose and join outer
     print('raw_feature_bc_matrix dimensions: ', raw_feature_bc_matrix)

@@ -64,7 +64,7 @@ def main(args):
 
     deg_with_miRNAs_allBarcodes_sorted_bar_var = deg_with_miRNAs_allBarcodes_sorted_bar[:,miRNA_adata.var_names]
     print('deg_with_miRNAs_allBarcodes_sorted_bar_var var_names #100-103: ', deg_with_miRNAs_allBarcodes_sorted_bar_var[:,100:103].var_names)
-    print('deg_with_miRNAs_allBarcodes_sorted_bar_var var_names #100-103 values: ', deg_with_miRNAs_allBarcodes_sorted_bar_var[:,100:103].var_names)
+    print('deg_with_miRNAs_allBarcodes_sorted_bar_var var_names #100-103 values: ', deg_with_miRNAs_allBarcodes_sorted_bar_var[:,100:103].X.data)
     print('Done with var_names matching/ordering')
 
     # set the layer to the matching/ordered deg_count

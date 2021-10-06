@@ -60,6 +60,7 @@ def _parse_cmdl(cmdl):
     parser.add_argument('--genome', dest='genome', help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
     parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
     parser.add_argument('--write_degraded_bam_file', dest='write_degraded_bam_file', help='Writes all TSS filtered reads to a file called degraded_not_TSS.bam in parent directory', default=False)
+    parser.add_argument('--include_introns', dest='include_introns', action='store_true', help='Include intronic reads for nuclei data')
 
     parser = logmuse.add_logging_options(parser)
     return parser.parse_args(cmdl)
@@ -98,10 +99,17 @@ class ReadCounter(ParaReadProcessor):
         else:
             args = list(write_degraded_bam_file)
             write_degraded_bam_file = args.pop()
+        if 'include_introns' in kwargs:
+            include_introns = kwargs.pop('include_introns')
+        else:
+            args = list(include_introns)
+            include_introns = args.pop()
+
         ParaReadProcessor.__init__(self, *args, **kwargs)
         self._features = features
         self._TSSdictionary = TSSdictionary
         self._write_degraded_bam_file = write_degraded_bam_file
+        self._include_introns = include_introns
 
     def __call__(self, chromosome, _=None):
         """For each chromosome, perform a specific action such as building the
@@ -116,7 +124,7 @@ class ReadCounter(ParaReadProcessor):
         reads = self.fetch_chunk(chromosome)
 
         deg_count_dict = bam_parser_chunk(reads, self._TSSdictionary, self._features,
-        self._write_degraded_bam_file)
+        self._write_degraded_bam_file, self._include_introns)
         print('Finished running bam_parser_chunk: ',time.asctime())
 
         with open(self._tempf(chromosome), 'w') as f:
@@ -138,7 +146,7 @@ class ReadCounter(ParaReadProcessor):
         print('Finished json write-out:',time.asctime())
         return chromosome
 
-def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_file):
+def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_file, include_introns):
     """
     Go through every read and create a degradation dictionary of barcode and counts.
 
@@ -150,12 +158,66 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
         TSS_dict (dict): Dictionary of transcription start sites.
         feature_dictionary (dict): Dictionary of gene ids and gene names.
         write_degraded_bam_file (bool): True to write a degraded bam file. False to not.
+        intron_introns (bool):
 
     Returns:
         dict: Dictionary of cell barcodes and degraded counts.
 
     """
+    def tag_reader(aln, deg_count_dict, feature_dictionary):
+        total_counts = 0
+        total_TSS_counts = 0
+        NO_UB = 0
+        ### Get Cell barcode and update set
+        if aln.has_tag("CB"):
+            cell_barcode = aln.get_tag("CB")
+            if cell_barcode not in cell_barcode_set:
+                cell_barcode_set.add(cell_barcode)
+                deg_count_dict[cell_barcode] = collections.defaultdict(list)
 
+            ### Get Gene Name and Ensembl ID, if it there is one
+            if aln.has_tag("GX"):
+                gene_id = aln.get_tag("GX")
+
+                ### only take reads that unambiguously map to one gene
+                VALID_GENE = gene_id in feature_dictionary.keys()
+
+                if VALID_GENE:
+                    TSSes_for_gene = TSS_dict[gene_id]
+                    all_TSS_overlaps = set()
+
+                    for TSS in TSSes_for_gene:
+                        all_TSS_overlaps.add(aln.get_overlap(TSS-20,TSS+20))
+
+                    NOT_TSS = max(all_TSS_overlaps) < 10
+                    IS_TSS = not NOT_TSS
+
+
+                    if aln.has_tag("GN"):
+                        gene_name = aln.get_tag("GN")
+
+                    #### keep a running tally of total gene mapping counts:
+                    total_counts += 1
+
+                    #### Only take degraded RNAs
+                    CLIPPED = aln.has_tag("ts:i")
+
+                    if NOT_TSS & VALID_GENE & CLIPPED:
+                        if gene_id not in deg_count_dict[cell_barcode].keys():
+                            deg_count_dict[cell_barcode][gene_id] = set()
+
+                        if aln.has_tag("UB"):
+                            deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
+                            if write_degraded_bam_file:
+                                OUTPUT_BAM.write(aln)
+                        else:
+                            NO_UB += 1
+
+                    #keep a running tally of all TSS mapping counts:
+                    elif IS_TSS & CLIPPED & VALID_GENE:
+                        total_TSS_counts += 1
+
+        return deg_count_dict, total_counts, total_TSS_counts, NO_UB
 
     # Initialize dictionary to store gene-cell matrix
     deg_count_dict = collections.defaultdict(list)
@@ -165,13 +227,10 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
 
     # Running tallies of gene counts for QC, debugging, and reporting purposes
     total_lines_read = 0
-    total_counts = 0
-    total_degraded_counts = 0
-    total_TSS_counts = 0
-    NO_UB = 0
     exon_count = 0
     intron_count = 0
     intergenic_count = 0
+    exon_intron_count = 0
 
     if type(TSS_dict) != dict:
         print('Warning, TSS dictionary generation failed.  Exiting.')
@@ -185,81 +244,66 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
         print('Writing TSS-filtered degraded BAM file to degraded_not_TSS.bam')
 
     print('Counting degraded reads...', time.asctime())
-    for aln in chunk:
 
-        total_lines_read += 1
-
-        if total_lines_read % 1e7 == 0:
-            print('Lines read:',f'{total_lines_read:,}')
-
-        ### Only consider uniquely mapped reads:
-        if aln.mapping_quality == 255:
-            # Only get exonic reads
-            if aln.get_tag("RE") == 'E':
-                exon_count += 1
-                ### Get Cell barcode and update set
-                if aln.has_tag("CB"):
-                    cell_barcode = aln.get_tag("CB")
-                    if cell_barcode not in cell_barcode_set:
-                        cell_barcode_set.add(cell_barcode)
-                        deg_count_dict[cell_barcode] = collections.defaultdict(list)
-
-                    ### Get Gene Name and Ensembl ID, if it there is one
-                    if aln.has_tag("GX"):
-                        gene_id = aln.get_tag("GX")
-
-                        ### only take reads that unambiguously map to one gene
-                        VALID_GENE = gene_id in feature_dictionary.keys()
-
-                        if VALID_GENE:
-                            TSSes_for_gene = TSS_dict[gene_id]
-                            all_TSS_overlaps = set()
-
-                            for TSS in TSSes_for_gene:
-                                all_TSS_overlaps.add(aln.get_overlap(TSS-20,TSS+20))
-
-                            NOT_TSS = max(all_TSS_overlaps) < 10
-                            IS_TSS = not NOT_TSS
-
-
-                            if aln.has_tag("GN"):
-                                gene_name = aln.get_tag("GN")
-
-                            #### keep a running tally of total gene mapping counts:
-                            total_counts += 1
-
-                            #### Only take degraded RNAs
-                            CLIPPED = aln.has_tag("ts:i")
-
-                            if NOT_TSS & VALID_GENE & CLIPPED:
-                                if gene_id not in deg_count_dict[cell_barcode].keys():
-                                    deg_count_dict[cell_barcode][gene_id] = set()
-
-                                if aln.has_tag("UB"):
-                                    deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
-                                    if write_degraded_bam_file:
-                                        OUTPUT_BAM.write(aln)
-                                else:
-                                    NO_UB += 1
-
-                            #keep a running tally of all TSS mapping counts:
-                            elif IS_TSS & CLIPPED & VALID_GENE:
-                                total_TSS_counts += 1
-
-                else:
-                    continue
-            elif aln.get_tag("RE") == 'N':
-                intron_count += 1
-            else:
-                intergenic_count += 1
-
+    print("include_introns", include_introns)
+    print("include_introns is True", include_introns is True)
+    if include_introns:
+        print("include_introns is True", include_introns is True)
+        for aln in chunk:
+            #print("aln reached")
+            total_lines_read += 1
+            if total_lines_read % 1e7 == 0:
+                print('Lines read:',f'{total_lines_read:,}')
+            ### Only consider uniquely mapped reads:
+            if aln.mapping_quality == 255:
+                #print("Mapping quality == 255")
+                # Get both exonic and intronic reads
+                if ((aln.get_tag("RE") == 'E') or (aln.get_tag("RE") == 'N')):
+                    #print("Exon or intron")
+                    if aln.get_tag("RE") == 'E':
+                        exon_count += 1
+                        #print("Exon")
+                    elif aln.get_tag("RE") == 'N':
+                        #print("Intron")
+                        intron_count += 1
+                    exon_intron_count += 1
+                    #print("Tag reader start")
+                    deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(aln, deg_count_dict, feature_dictionary)
+                    #print("Tag reader end")
+                elif aln.get_tag("RE") == 'I':
+                    intergenic_count += 1
+                    #print("Intergenic")
+    else:
+        print("include_introns is False", include_introns is False)
+        for aln in chunk:
+            #print("False version aln reached")
+            total_lines_read += 1
+            if total_lines_read % 1e7 == 0:
+                print('Lines read:',f'{total_lines_read:,}')
+            ### Only consider uniquely mapped reads:
+            if aln.mapping_quality == 255:
+                # Only get exonic reads
+                if aln.get_tag("RE") == 'E':
+                    #print("Exon only")
+                    exon_count += 1
+                    exon_intron_count += 1
+                    deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(aln, deg_count_dict, feature_dictionary)
+                elif aln.get_tag("RE") == 'N':
+                    #print("Intron")
+                    intron_count += 1
+                    exon_intron_count += 1
+                elif aln.get_tag("RE") == 'I':
+                    #print("Intergenic")
+                    intergenic_count += 1
     print('Total exonic: ', exon_count)
     print('Total intronic: ', intron_count)
+    print('Total exon_intron: ', exon_intron_count)
     print('Total intergenic: ', intergenic_count)
-    print('Total counts:', total_counts)
-    print('Total degraded counts:', total_degraded_counts)
-    print('Total TSS reads (not UMI de-duplicated):', total_TSS_counts)
-    print("Number of lines without 'UB' tag ", NO_UB)
+    # broke for total_counts 2021.09.27 maybe because some iterations through aln do not have GN tag for gene name, thus creating an error(?)
+    #print('Total counts:', total_counts)
+    # broke: UnboundLocalError: local variable 'total_TSS_counts' referenced before assignment 
+    #print('Total TSS reads (not UMI de-duplicated):', total_TSS_counts)
+    #print("Number of lines without 'UB' tag ", NO_UB)
     time.asctime()
     ## Finally, collapse the UMI-containing sets into digital gene expression counts:
     print("Collapsing deg_count_dict to have the number of UMI", time.asctime())
@@ -556,7 +600,7 @@ def main(cmdl):
     counter = ReadCounter(args.readsfile, cores=args.cores,
                           outfile=args.outdictionary, action="CountReads",
                           TSSdictionary=TSS_dict, features=feature_dictionary,
-                          write_degraded_bam_file=write_degraded_bam)
+                          write_degraded_bam_file=write_degraded_bam, include_introns=args.include_introns)
     print('****MAIN STEP****: FINISHED THE READCOUNTER', time.asctime())
 
     _LOGGER.debug("Registering files")

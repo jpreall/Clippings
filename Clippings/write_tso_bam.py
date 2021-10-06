@@ -19,7 +19,7 @@ import pysam
 import numpy as np
 
 
-def write_degraded_bam(full_path_to_BAM, TMPBAM_FILENAME, OUTBAM_FILENAME):
+def write_degraded_bam(full_path_to_BAM, OUTBAM_FILENAME):
     
 	'''Writes a subsetted BAM file containing only reads with the ts:i tag
 	There is probably a good way to parallelize this in the future
@@ -29,7 +29,7 @@ def write_degraded_bam(full_path_to_BAM, TMPBAM_FILENAME, OUTBAM_FILENAME):
 	print('Extracting TSO-containing reads from',BAM,'...')
     
 	alignments = pysam.AlignmentFile(BAM, "rb")
-	TMPBAM = pysam.AlignmentFile(TMPBAM_FILENAME, "wb", template=alignments)
+	OUTBAM = pysam.AlignmentFile(OUTBAM_FILENAME, "wb", template=alignments)
     
 	tally = 0
     
@@ -39,27 +39,21 @@ def write_degraded_bam(full_path_to_BAM, TMPBAM_FILENAME, OUTBAM_FILENAME):
 			print('Lines read:',f'{tally:,}')
 			
 		if read.has_tag("ts:i"):
-			TMPBAM.write(read)
+			OUTBAM.write(read)
 
-	TMPBAM.close()
+	OUTBAM.close()
 	alignments.close()
 
 
     ## Write the .bai index file
-	if os.path.exists(TMPBAM_FILENAME):
-
-		print('Sorting output...')
-		pysam.sort("-o", OUTBAM_FILENAME, TMPBAM_FILENAME)
-		os.remove(TMPBAM_FILENAME)
-		if not os.path.exists(TMPBAM_FILENAME):
-			print('temp files deleted successfully...')
+	if os.path.exists(OUTBAM_FILENAME):
 		print('Generating BAM index...')
 		pysam.index(OUTBAM_FILENAME)
 		
 		print('Output file:',OUTBAM_FILENAME)
 		print('File size = ',np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2,2),'MB')	
 		
-	TMPBAM.close()
+	OUTBAM.close()
         
         
 def main(args):
@@ -74,9 +68,8 @@ def main(args):
 		print('Warning: output path not found')
         
 	OUTBAM_FILENAME = os.path.join(outpath,'TSO_reads.bam')
-	TMPBAM_FILENAME = os.path.join(outpath,'tmp_tso.bam')
 	
-	write_degraded_bam(full_path_to_BAM, TMPBAM_FILENAME, OUTBAM_FILENAME)
+	write_degraded_bam(full_path_to_BAM, OUTBAM_FILENAME)
     
 
 if __name__ == '__main__':

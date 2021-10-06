@@ -359,7 +359,8 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     barcode_miRNA_adata.var['gene_ids'] = barcode_miRNA_adata.var_names
     barcode_miRNA_adata.var['feature_types'] = raw_feature_bc_matrix.var['feature_types'][0]
     barcode_miRNA_adata.var['genome'] = raw_feature_bc_matrix.var['genome'][0]
-
+    # rename all mirbase genes for clarity
+    barcode_miRNA_adata.var_names = list(micro for micro in barcode_miRNA_adata.var_names + '_DroshaProd')
 
     # transpose and join outer
     print('raw_feature_bc_matrix dimensions: ', raw_feature_bc_matrix)
@@ -400,8 +401,7 @@ def main(args):
     raw_feature_bc_matrix.var_names_make_unique()
     raw_with_miRNAs = miRNA_to_featureMatrix(results, raw_feature_bc_matrix)
 
-    # should we specify .h5ad?
-    outfile=os.path.join(outdir,'raw_feature_matrix_with_miRNAs.h5')
+    outfile=os.path.join(outdir,'raw_feature_matrix_with_miRNAs.h5ad')
     raw_with_miRNAs.write(outfile)
 
     # testing purposes

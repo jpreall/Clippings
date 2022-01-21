@@ -27,6 +27,7 @@ class TSOReadCounter(ParaReadProcessor):
     """ Read counter for TSO labelled reads. """
 
     def __call__(self, chromosome, _=None):
+        import os
         # doesn't work because count can't handle multiple iterators
         # n_reads = self.readsfile.count(chromosome)
 
@@ -34,16 +35,11 @@ class TSOReadCounter(ParaReadProcessor):
         tso_reads = 0
         reads = self.fetch_chunk(chromosome)
 
-        print('Time started for TSO BAM write-out:', time.asctime())
-        # 2021.08.09 Writing out dictionary as json to then re-load and combine
+        print('Time started for TSO BAM ({0}) write-out:'.format(chromosome), time.asctime())
         tso_bamFolder = 'tso_bamFolder'
-        import os
         tso_bamFolderPath = os.path.join(os.getcwd(), tso_bamFolder)
-        # change back if necessary
 
-        OUTBAM_FILENAME = os.path.join(tso_bamFolderPath, str(chromosome) + '_TSO_reads.bam')
         TSOBAM_FILENAME = os.path.join(tso_bamFolderPath, str(chromosome) + '_tmp_tso.bam')
-        #alignments = pysam.AlignmentFile(BAM, "rb")
 
         TSOBAM = pysam.AlignmentFile(TSOBAM_FILENAME, "wb", template=get_template(args.BAMFILE))
 
@@ -65,47 +61,6 @@ def get_template(full_path_to_BAM):
     return alignments_template
 
 
-def write_degraded_bam(full_path_to_BAM, TMPBAM_FILENAME, OUTBAM_FILENAME):
-    '''Writes a subsetted BAM file containing only reads with the ts:i tag
-    There is probably a good way to parallelize this in the future
-    '''
-
-    BAM = os.path.basename(full_path_to_BAM)
-    print('Extracting TSO-containing reads from', BAM, '...')
-
-    alignments = pysam.AlignmentFile(BAM, "rb")
-    TMPBAM = pysam.AlignmentFile(TMPBAM_FILENAME, "wb", template=alignments)
-
-    tally = 0
-
-    for read in alignments.fetch(until_eof=True):
-        tally += 1
-        if tally % 1e7 == 0:
-            print('Lines read:', f'{tally:,}')
-
-        if read.has_tag("ts:i"):
-            TMPBAM.write(read)
-
-    TMPBAM.close()
-    alignments.close()
-
-    # Write the .bai index file
-    if os.path.exists(TMPBAM_FILENAME):
-
-        print('Sorting output...')
-        pysam.sort("-o", OUTBAM_FILENAME, TMPBAM_FILENAME)
-        os.remove(TMPBAM_FILENAME)
-        if not os.path.exists(TMPBAM_FILENAME):
-            print('temp files deleted successfully...')
-        print('Generating BAM index...')
-        pysam.index(OUTBAM_FILENAME)
-
-        print('Output file:', OUTBAM_FILENAME)
-        print('File size = ', np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2), 'MB')
-
-    TMPBAM.close()
-
-
 def main(args):
     import time
     print('****MAIN STEP****: START', time.asctime())
@@ -118,6 +73,8 @@ def main(args):
 
     outpath = args.out  # NEED A FRIENDLY WAY TO CHECK IF PATH EXISTS
     BAM = args.BAMFILE
+    BAM_align = pysam.AlignmentFile(BAM, 'rb')
+
     full_path_to_BAM = os.path.realpath(BAM)
     cores = args.cores
 
@@ -155,12 +112,41 @@ def main(args):
 
     print('Combine bam files', time.asctime())
 
-    print("Merging bam files", time.asctime())
-    bamFiles = glob.glob('tso_bamFolder/*.bam')
-    print('bamFiles: ', bamFiles)
-    #pysam.merge('-f', 'finalBam.bam', *bamFiles)
-    pysam.cat(*bamFiles)
-    print('****MAIN STEP****: FINISHED MERGING', time.asctime())
+    print("Concatenating bam files", time.asctime())
+    # Now that the chromosome bams are written out, we can proceed
+    allBam = '*.bam'
+    bamFiles = glob.glob(os.path.join(tso_bamFolder, allBam))
+    #print('bamFiles: ', bamFiles)
+
+    # Get the ordered list of chromosomes based on original bam
+    chr_list_order = list()
+    for chromosome in BAM_align.header['SQ']:
+        #print(chromosome['SN'] + '_tmp_tso.bam')
+        chr_list_order.append(chromosome['SN'] + '_tmp_tso.bam')
+
+    # next get the full path for each chromosome
+    chr_path_list_order = list()
+    for i in chr_list_order:
+        print(os.path.join(tso_bamFolder, i))
+        chr_path_list_order.append(os.path.join(tso_bamFolder, i))
+
+    # then get the subset of chromosome bams that exist
+    # in the folder from chr_path_list_order
+    # https://stackoverflow.com/questions/23529001/ordered-intersection-of-two-lists-in-python
+    setOfThingsToKeep = frozenset(bamFiles)
+    intersectionKeepOrder = [x for x in chr_path_list_order if x in setOfThingsToKeep]
+
+    # finally concatenate the ts:i labelled bam files together
+    pysam.cat('-o', 'TSO_reads_bam.bam', *intersectionKeepOrder)
+    print('****MAIN STEP****: FINISHED CONCATENATING', time.asctime())
+
+    # Write the .bai index file
+    full_tso_bam = os.path.join(os.getcwd(), 'TSO_reads_bam.bam')
+    if os.path.exists(full_tso_bam):
+        print('Generating BAM index... ', time.asctime())
+        pysam.index(full_tso_bam)
+        print('Output file:', full_tso_bam)
+        print('File size = ', np.round(os.path.getsize(full_tso_bam) / 1024**2, 2), 'MB')
 
 
 if __name__ == '__main__':

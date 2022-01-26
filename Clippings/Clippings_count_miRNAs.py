@@ -238,7 +238,6 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
         for m in chrom_dict[c].keys():
             allmi[m] = c
 
-    OUTBAM_FILENAME = 'miRNA_near_matches.bam'
     print(BAM)
     alignments = pysam.AlignmentFile(BAM, "rb")
     MI_READS = pysam.AlignmentFile('tmp_miRNA_matching.bam', "wb", template=alignments)
@@ -274,7 +273,7 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
                     tally += 1
                     if tally % 1e3 == 0:
                         print('Lines read:', f'{tally:,}')
-                        print('count_table: ', count_table)
+                        # print('count_table: ', count_table)
                     if read.has_tag("ts:i"):
                         if read.has_tag('UB') & read.has_tag('CB'):
                             if read.is_reverse:
@@ -324,17 +323,17 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
 
     print("Starting .bai index file writing: ", time.asctime())
     # Write the .bai index file
-    if os.path.exists(OUTBAM_FILENAME):
-
-        print('Sorting output...')
-        pysam.sort("-o", OUTBAM_FILENAME, "tmp_miRNA_matching.bam")
+    print("Sorting output...")
+    OUTBAM_FILENAME = 'sorted_miRNA_matching.bam'
+    pysam.sort("-o", OUTBAM_FILENAME, "tmp_miRNA_matching.bam")
+    os.remove("tmp_miRNA_matching.bam")
+    if os.path.exists('tmp_miRNA_matching.bam'):
         os.remove("tmp_miRNA_matching.bam")
-        if not os.path.exists('tmp_miRNA_matching.bam'):
-            print('Cleaning up temp files...')
-        print('Generating BAM index...')
-        print('File size = ', np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2), 'MB')
-        pysam.index(OUTBAM_FILENAME)
-        MI_READS.close()
+        print('Cleaning up temp files...')
+    print('Generating BAM index...', time.asctime())
+    print('File size = ', np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2), 'MB')
+    pysam.index(OUTBAM_FILENAME)
+    MI_READS.close()
     print("Finish .bai index file writing: ", time.asctime())
 
     print('Counting UMIs...', time.asctime())

@@ -384,7 +384,8 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
 
     """
     # # https://stackoverflow.com/questions/22412033/python-pandas-pivot-table-count-frequency-in-one-column
-
+    # remove duplicated UBs from the result table that has all the queries
+    count_miRNAs_result = count_miRNAs_result.drop_duplicates(subset=['UB'])
     barcode_miRNA_df = count_miRNAs_result[['CB', 'miRNA']].pivot_table(
         index='CB', columns='miRNA', aggfunc=len, fill_value=0)
     print('miRNAs by UMI count')

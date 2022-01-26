@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-#$ -cwd
-#$ -v PATH,LD_LIBRARY_PATH
+# $ -cwd
+# $ -v PATH,LD_LIBRARY_PATH
 """
 Clippings_count_miRNAs.py
 
@@ -10,7 +10,7 @@ Count mapped reads harboring TSO sub-subsequence. Only works with CellRanger 4.0
 Inputs:
     BAMFILE = BAM file produced by Cellranger v4+ with TSO reads tagged with ts:i
     REFERENCE_FILE = gff3 file with miRNA coordinates downloaded from miRBase
-    ### TODO: Add ability to use miRNA GTF/coordinate files produced elsewhere
+    # TODO: Add ability to use miRNA GTF/coordinate files produced elsewhere
 
     Usage: Clippings_count_miRNA.py BAMFILE REFERENCE_FILE
 
@@ -33,14 +33,15 @@ import gtfparse
 import time
 import scanpy as sc
 
-##packages to try to do without:
-#import scanpy as sc
-#import scipy
-#import seaborn as sns
-#import matplotlib.pyplot as pl
-#import gzip
-#import csv
-#import string
+# packages to try to do without:
+# import scanpy as sc
+# import scipy
+# import seaborn as sns
+# import matplotlib.pyplot as pl
+# import gzip
+# import csv
+# import string
+
 
 def attributes_to_columns_from_mirbase_GFF3(file):
     """
@@ -57,12 +58,13 @@ def attributes_to_columns_from_mirbase_GFF3(file):
     print("Starting attirubtes_to_columns_from_mirbase_GFF3: ", time.asctime())
 
     import pandas as pd
-    columns = ['seqname', 'source', 'feature', 'start', 'end', 'score', 'strand', 'frame', 'attributes']
+    columns = ['seqname', 'source', 'feature', 'start',
+               'end', 'score', 'strand', 'frame', 'attributes']
     attribute_df = pd.read_table(file, comment='#', header=None)
     attribute_df.columns = columns
 
-    #attribute_df = self.copy()
-    #miRNA_anno_df = attribute_df.loc[:, "seqname":"attributes"]
+    # attribute_df = self.copy()
+    # miRNA_anno_df = attribute_df.loc[:, "seqname":"attributes"]
     miRNA_anno_df = attribute_df.copy()
 
     attribute_df["at_dic"] = attribute_df.attributes.apply(
@@ -88,10 +90,14 @@ def attributes_to_columns_from_mirbase_GFF3(file):
     print("Finish attirubtes_to_columns_from_mirbase_GFF3: ", time.asctime())
     return miRNA_anno_df
 
+
 def dict_of_parent_names(miRNA_anno_df):
     """Extracts primary transcripts and returns a dictionary of ID and Name"""
     PARENT_DF = miRNA_anno_df[miRNA_anno_df['feature'] == 'miRNA_primary_transcript']
-    PARENT_DICT = dict(zip(PARENT_DF['ID'],PARENT_DF['Name']))
+    try:
+        PARENT_DICT = dict(zip(PARENT_DF['ID'], PARENT_DF['Name']))
+    except KeyError:
+        PARENT_DICT = dict(zip(PARENT_DF['ID'], PARENT_DF['gene_name']))
     return PARENT_DICT
 
 
@@ -109,26 +115,50 @@ def make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, PARENT_DICT):
 
     """
 
-    #Only consider entries with a clearly marked 3p arm:
+    # Only consider entries with a clearly marked 3p arm:
     print("Starting make_dictionary_of_miRNA_Drosha_coords: ", time.asctime())
 
-    threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$')]
+    try:
+        threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$')]
+        print('threep original: ', threep)
+        print(threep.shape)
+    except KeyError:
+        threep = miRNA_anno_df[miRNA_anno_df['gene_name'].str.match('.*3p$')]
 
-    #Drop any entries where the 3p arm is erroneously marked a
+    print('error 3p', threep['Derives_from'].duplicated())
+    # Drop any entries where the 3p arm is erroneously marked a
     dupthreep = threep[threep['Derives_from'].duplicated()]
     threep = threep[~threep['Derives_from'].duplicated()]
+    # threep2 = threep[!dupthreep]
+    #print('threep2: ', threep2)
+    #print('threep2 shape:', threep2.shape)
+    print('dupthreep: ', dupthreep)
+    print('dupthreep shape: ', dupthreep.shape)
+    print('threep new: ', threep)
+    print('threep new shape: ', threep.shape)
 
-
+    print('partial threep: ', threep[298:])
     coord_dict = {}
 
+    iteration = 0
     for __, line in threep.iterrows():
         COORD = line['start'] if line['strand'] == '-' else line['end']
         CHROM = line['seqname']
         DROSHA_SITE = CHROM+':' + str(COORD)
         DERIVES_FROM = line['Derives_from']
         coord_dict[DERIVES_FROM] = DROSHA_SITE
+        iteration += 1
+        if iteration % 300 == 0:
+            print('iteration #: ', iteration)
+            print('COORD: ', COORD)
+            print('CHROM: ', CHROM)
+            print('DROSHA_SITE: ', DROSHA_SITE)
+            print('DERIVES_FROM: ', DERIVES_FROM)
+            print('coord_dict[DERIVES_FROM]: ', coord_dict[DERIVES_FROM])
 
-    coord_dict = {PARENT_DICT[DERIVES_FROM]:coord_dict[DERIVES_FROM] for DERIVES_FROM in coord_dict}
+    coord_dict = {PARENT_DICT[DERIVES_FROM]: coord_dict[DERIVES_FROM]
+                  for DERIVES_FROM in coord_dict}
+    print('coord_dict: ', coord_dict)
 
     import collections
 
@@ -141,9 +171,10 @@ def make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, PARENT_DICT):
         DERIVES_FROM = line['Derives_from']
         if CHROM not in chrom_dict.keys():
             chrom_dict[CHROM] = collections.defaultdict(list)
-        chrom_dict[CHROM][PARENT_DICT[DERIVES_FROM]] = (COORD,STRAND)
+        chrom_dict[CHROM][PARENT_DICT[DERIVES_FROM]] = (COORD, STRAND)
     print("Finish make_dictionary_of_miRNA_Drosha_coords: ", time.asctime())
     return chrom_dict
+
 
 def fix_chr_chromnames(chrom_dict, BAM):
     """
@@ -168,14 +199,14 @@ def fix_chr_chromnames(chrom_dict, BAM):
 
     # only fix if < 10% of chromosome names don't start with chr
     if len(REF_STARTING_WITH_CHR) < 0.1*len(bamfile.header.references):
-        newkeys = [name.replace('chr','') for name in chrom_dict.keys()]
+        newkeys = [name.replace('chr', '') for name in chrom_dict.keys()]
         newkeys_pass_filter = [name for name in newkeys if name in bamfile.header.references]
-        print('Changing',len(newkeys_pass_filter),'chromosome names in GTF file to match BAM file...')
+        print('Changing', len(newkeys_pass_filter),
+              'chromosome names in GTF file to match BAM file...')
         for newkey in newkeys_pass_filter:
             chrom_dict[newkey] = chrom_dict.pop('chr' + newkey)
     print("Finish fix_chr_chromnames: ", time.asctime())
     return chrom_dict
-
 
 
 def count_miRNAs(BAM, chrom_dict, flanks=0):
@@ -212,18 +243,17 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
     alignments = pysam.AlignmentFile(BAM, "rb")
     MI_READS = pysam.AlignmentFile('tmp_miRNA_matching.bam', "wb", template=alignments)
 
-
     count_table = collections.defaultdict(set)
     detailed_results = collections.defaultdict(list)
     tally = 0
     NO_UB = 0
 
-
-    distances = []
+    bh_counter = 0
     for i in range(len(allmi.keys())):
         m = list(allmi.keys())[i]
         chroms = [allmi[m]]
         mirnas = [m]
+        bh_counter += 1
 
         for chrom in chroms:
 
@@ -242,55 +272,58 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
 
                 for read in alignments.fetch(chrom, start, end):
                     tally += 1
-                    if tally % 1e5 == 0:
-                        print('Lines read:',f'{tally:,}')
+                    if tally % 1e3 == 0:
+                        print('Lines read:', f'{tally:,}')
+                        print('count_table: ', count_table)
                     if read.has_tag("ts:i"):
                         if read.has_tag('UB') & read.has_tag('CB'):
-                            count_table[mirna].add(read.get_tag("UB"))
-                            MI_READS.write(read)
-                            if read.cigarstring != '56M':
-                                example_read = read
-
                             if read.is_reverse:
                                 distance = read.reference_end - DROSHA_SITE
                             else:
                                 distance = read.reference_start - DROSHA_SITE
+                            # distance to DROSHA should be no less than 'X'
+                            if abs(distance) < 5:
+                                count_table[mirna].add(read.get_tag("UB"))
+                                MI_READS.write(read)
+                                if read.cigarstring != '56M':
+                                    example_read = read
 
-                            # write detailed_results dictionary
-                            if mirna not in detailed_results.keys():
-                                detailed_results[mirna] = collections.defaultdict(list)
+                                # write detailed_results dictionary
+                                if mirna not in detailed_results.keys():
+                                    detailed_results[mirna] = collections.defaultdict(list)
 
-                            read_name = read.query_name
-                            read_details = read.to_dict()
-                            read_details.pop('name')
-                            read_details.pop('tags')
+                                read_name = read.query_name
+                                read_details = read.to_dict()
+                                read_details.pop('name')
+                                read_details.pop('tags')
 
-                            detailed_results[mirna][read_name] = read_details
+                                detailed_results[mirna][read_name] = read_details
 
-                            for tag in read.tags:
-                                detailed_results[mirna][read_name][tag[0]] = tag[1]
+                                for tag in read.tags:
+                                    detailed_results[mirna][read_name][tag[0]] = tag[1]
 
-                            detailed_results[mirna][read_name]['CB_UB'] = read.get_tag('CB') + '_' + read.get_tag('UB')
-                            detailed_results[mirna][read_name]['Dist_to_DROSHA'] = distance
+                                detailed_results[mirna][read_name]['CB_UB'] = read.get_tag(
+                                    'CB') + '_' + read.get_tag('UB')
+                                detailed_results[mirna][read_name]['Dist_to_DROSHA'] = distance
 
                         else:
                             NO_UB += 1
+
     MI_READS.close()
     alignments.close()
 
-
-    ## Convert detailed results to a pandas dataframe
+    # Convert detailed results to a pandas dataframe
     print("Starting pandas dataframe conversion: ", time.asctime())
 
     results = pd.DataFrame()
     for m in detailed_results.keys():
         tmpdf = pd.DataFrame.from_dict(detailed_results[m], orient='index')
         tmpdf['miRNA'] = m
-        results = pd.concat([tmpdf,results])
+        results = pd.concat([tmpdf, results])
     print("Finish pandas dataframe conversion: ", time.asctime())
 
     print("Starting .bai index file writing: ", time.asctime())
-    ## Write the .bai index file
+    # Write the .bai index file
     if os.path.exists(OUTBAM_FILENAME):
 
         print('Sorting output...')
@@ -299,7 +332,7 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
         if not os.path.exists('tmp_miRNA_matching.bam'):
             print('Cleaning up temp files...')
         print('Generating BAM index...')
-        print('File size = ',np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2,2),'MB')
+        print('File size = ', np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2), 'MB')
         pysam.index(OUTBAM_FILENAME)
         MI_READS.close()
     print("Finish .bai index file writing: ", time.asctime())
@@ -308,16 +341,17 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
     for mir in count_table.keys():
         count_table[mir] = len(count_table[mir])
 
-    print('# candidate reads with no UB tag:',NO_UB)
+    print('# candidate reads with no UB tag:', NO_UB)
     count_table = pd.DataFrame(count_table, index=['count']).T
 
     print("Finish count_miRNAs: ", time.asctime())
     return count_table, example_read, results
 
-####### STOLEN AND BORKED, STILL TODO
+
+# STOLEN AND BORKED, STILL TODO
 """
 
-    #write 10X mtx format
+    # write 10X mtx format
     if args.mtx:
         try:
             print('Writing 10X-formatted mtx directory...')
@@ -326,14 +360,16 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
         except IOError:
             print("I/O error")
 
-    ##write 10X h5 format
+    # write 10X h5 format
     try:
         print('Writing 10X-formatted h5 file...')
-        write_10x_h5(deg_count_dict, feature_dictionary, outdir, LIBRARY_ID, CHEMISTRY, genome=genome)
+        write_10x_h5(deg_count_dict, feature_dictionary, outdir,
+                     LIBRARY_ID, CHEMISTRY, genome=genome)
 
     except IOError:
         print("I/O error")
 """
+
 
 def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     """
@@ -350,7 +386,8 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     """
     # # https://stackoverflow.com/questions/22412033/python-pandas-pivot-table-count-frequency-in-one-column
 
-    barcode_miRNA_df = count_miRNAs_result[['CB','miRNA']].pivot_table(index='CB', columns='miRNA', aggfunc=len, fill_value=0)
+    barcode_miRNA_df = count_miRNAs_result[['CB', 'miRNA']].pivot_table(
+        index='CB', columns='miRNA', aggfunc=len, fill_value=0)
     print('miRNAs by UMI count')
     print(barcode_miRNA_df.sum(0).sort_values(ascending=False))
 
@@ -360,12 +397,14 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     barcode_miRNA_adata.var['feature_types'] = raw_feature_bc_matrix.var['feature_types'][0]
     barcode_miRNA_adata.var['genome'] = raw_feature_bc_matrix.var['genome'][0]
     # rename all mirbase genes for clarity
-    barcode_miRNA_adata.var_names = list(micro for micro in barcode_miRNA_adata.var_names + '_DroshaProd')
+    barcode_miRNA_adata.var_names = list(
+        micro for micro in barcode_miRNA_adata.var_names + '_DroshaProd')
 
     # transpose and join outer
     print('raw_feature_bc_matrix dimensions: ', raw_feature_bc_matrix)
     print('barcode_miRNA_adata dimensions: ', barcode_miRNA_adata)
-    tmp_combine = raw_feature_bc_matrix.T.concatenate(barcode_miRNA_adata.T, join='outer', index_unique=None)
+    tmp_combine = raw_feature_bc_matrix.T.concatenate(
+        barcode_miRNA_adata.T, join='outer', index_unique=None)
     print('transpose merged dimensions: ', tmp_combine)
     raw_with_miRNAs = tmp_combine.T
     print('raw_with_miRNAs dimensions: ', raw_with_miRNAs)
@@ -373,15 +412,16 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     del tmp_combine
     return raw_with_miRNAs
 
+
 def main(args):
     outdir = args.outdir
     genome = args.genome
 
     if os.path.isdir(outdir):
-        #overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
-        #if overwrite.lower() == 'n':
+        # overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
+        # if overwrite.lower() == 'n':
         #    exit(0)
-        #elif overwrite.lower() == 'y':
+        # elif overwrite.lower() == 'y':
         #    shutil.rmtree(outdir)
         # Commented out above because if used as script (as it is now), there is no user input
         print('Output directory already exists')
@@ -401,29 +441,34 @@ def main(args):
     raw_feature_bc_matrix.var_names_make_unique()
     raw_with_miRNAs = miRNA_to_featureMatrix(results, raw_feature_bc_matrix)
 
-    outfile=os.path.join(outdir,'raw_feature_matrix_with_miRNAs.h5ad')
+    outfile = os.path.join(outdir, 'raw_feature_matrix_with_miRNAs.h5ad')
     raw_with_miRNAs.write(outfile)
 
     # testing purposes
     foo = sc.read(outfile)
     print('miRNA table dimensions: ', foo)
 
-    if args.results_table == True:
+    if args.results_table is True:
         print('Writing miRNAs_result_table')
         results.to_csv(os.path.join(outdir, 'miRNAs_result_table.csv'), index=True)
 
     print('Done with part 2!')
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('BAMFILE', help='Input bam file')
     parser.add_argument('REFERENCE_FILE', help='miRBase gff3 file')
-    parser.add_argument('--outdir', dest='outdir', help='Output folder', default="raw_feature_matrix_with_miRNAs")
-    parser.add_argument('--genome', dest='genome', help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
-    #need to implement .mtx
-    #parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
-    parser.add_argument('--raw', dest='raw', required=True, help='10x Genomics raw feature bc matrix to concatenate miRNAs to')
-    parser.add_argument('--results_table', dest='results_table', help='Write out results table of reading miRNAs as csv', default=True)
+    parser.add_argument('--outdir', dest='outdir', help='Output folder',
+                        default="raw_feature_matrix_with_miRNAs")
+    parser.add_argument('--genome', dest='genome',
+                        help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
+    # need to implement .mtx
+    # parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
+    parser.add_argument('--raw', dest='raw', required=True,
+                        help='10x Genomics raw feature bc matrix to concatenate miRNAs to')
+    parser.add_argument('--results_table', dest='results_table',
+                        help='Write out results table of reading miRNAs as csv', default=True)
 
     if len(sys.argv) == 1:
         parser.print_help()

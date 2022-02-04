@@ -71,12 +71,10 @@ def main(args):
     os.mkdir(tso_bamFolderPath)
     print('tso_bamFolderPath', tso_bamFolderPath)
 
+    # custom outpath currently doesnt work
     outpath = args.out  # NEED A FRIENDLY WAY TO CHECK IF PATH EXISTS
     BAM = args.BAMFILE
     BAM_align = pysam.AlignmentFile(BAM, 'rb')
-
-    full_path_to_BAM = os.path.realpath(BAM)
-    cores = args.cores
 
     # if outpath == None:
     #    outpath = os.path.dirname(full_path_to_BAM)
@@ -152,7 +150,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('BAMFILE', help='Input bam file')
-    parser.add_argument('--out', dest='out', help='Output folder', default=None)
+    # parser.add_argument('--out', dest='out', help='Output folder', default=None)
     parser.add_argument('-C', '--cores', default=10, help="Number of cores.")
 
     if len(sys.argv) == 1:

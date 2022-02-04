@@ -10,9 +10,12 @@ Count mapped reads harboring TSO sub-subsequence. Only works with CellRanger 4.0
 Inputs:
     BAMFILE = BAM file produced by Cellranger v4+ with TSO reads tagged with ts:i
     REFERENCE_FILE = gff3 file with miRNA coordinates downloaded from miRBase
+    genome
+    outdir
+    raw = Raw matrix to tack miRNAs onto the variable columns
     # TODO: Add ability to use miRNA GTF/coordinate files produced elsewhere
 
-    Usage: Clippings_count_miRNA.py BAMFILE REFERENCE_FILE
+    Usage: Clippings_count_miRNA.py BAMFILE REFERENCE_FILE --genome --outdir --raw
 
 Author: jpreall@cshl.edu
 Date: 2021-07
@@ -212,7 +215,7 @@ def fix_chr_chromnames(chrom_dict, BAM):
 def count_miRNAs(BAM, chrom_dict, flanks=0):
     """
     Reads bamfile and stores read information into a pandas DataFrame and counts number
-    of each miRNA.
+    of each miRNA. Also outputs miRNA labelled reads as a bam file with index.
 
     Args:
         BAM (bamfile): Bamfile produced by 10x Genomics' CellRanger
@@ -324,7 +327,7 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
     print("Starting .bai index file writing: ", time.asctime())
     # Write the .bai index file
     print("Sorting output...")
-    OUTBAM_FILENAME = 'sorted_miRNA_matching.bam'
+    OUTBAM_FILENAME = 'sorted_miRNA_reads.bam'
     pysam.sort("-o", OUTBAM_FILENAME, "tmp_miRNA_matching.bam")
     os.remove("tmp_miRNA_matching.bam")
     if os.path.exists('tmp_miRNA_matching.bam'):

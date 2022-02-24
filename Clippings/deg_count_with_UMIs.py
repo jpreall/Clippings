@@ -136,7 +136,7 @@ class ReadCounter(ParaReadProcessor):
             #f.write("{}\t{}".format(chromosome, n_reads))
             print(chromosome, file=f)
             # the following might be too long of a print
-            print(dict(list(deg_count_dict.items())[0:15]), file=f)
+            print(dict(list(deg_count_dict.items())[0:10]), file=f)
 
         print('Time Started for json write-out:', time.asctime())
         # 2021.08.09 Writing out dictionary as json to then re-load and combine
@@ -205,9 +205,11 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
                     total_counts += 1
 
                     # Only take degraded RNAs
-                    CLIPPED = aln.has_tag("ts:i")
+                    #CLIPPED = aln.has_tag("ts:i")
 
-                    if NOT_TSS & VALID_GENE & CLIPPED:
+                    #if NOT_TSS & VALID_GENE & CLIPPED:
+                    #if NOT_TSS & VALID_GENE:
+                    if VALID_GENE:
                         if gene_id not in deg_count_dict[cell_barcode].keys():
                             deg_count_dict[cell_barcode][gene_id] = set()
 
@@ -219,7 +221,8 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
                             NO_UB += 1
 
                     # keep a running tally of all TSS mapping counts:
-                    elif IS_TSS & CLIPPED & VALID_GENE:
+                   # elif IS_TSS & CLIPPED & VALID_GENE:
+                    elif IS_TSS & VALID_GENE:
                         total_TSS_counts += 1
 
         return deg_count_dict, total_counts, total_TSS_counts, NO_UB
@@ -250,10 +253,8 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
 
     print('Counting degraded reads...', time.asctime())
 
-    print("include_introns", include_introns)
     print("include_introns is True", include_introns is True)
     if include_introns:
-        print("include_introns is True", include_introns is True)
         for aln in chunk:
             #print("aln reached")
             total_lines_read += 1
@@ -287,21 +288,25 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
             if total_lines_read % 1e7 == 0:
                 print('Lines read:', f'{total_lines_read:,}')
             # Only consider uniquely mapped reads:
-            if aln.mapping_quality == 255:
-                # Only get exonic reads
-                if aln.get_tag("RE") == 'E':
-                    #print("Exon only")
-                    exon_count += 1
-                    exon_intron_count += 1
-                    deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(
-                        aln, deg_count_dict, feature_dictionary)
-                elif aln.get_tag("RE") == 'N':
-                    # print("Intron")
-                    intron_count += 1
-                    exon_intron_count += 1
-                elif aln.get_tag("RE") == 'I':
-                    # print("Intergenic")
-                    intergenic_count += 1
+            #if aln.mapping_quality == 255:
+            if aln.has_tag("xf:i"):
+                #if (aln.get_tag("xf:i") & 8): # working, same as original
+                if aln.get_tag("xf:i") == 17 or aln.get_tag("xf:i") == 25: #working, same as 8 after filter min_cells=1
+                    #print(aln.get_tag("xf:i"))
+                    # Only get exonic reads
+                    if aln.get_tag("RE") == 'E':
+                        #print("Exon only")
+                        exon_count += 1
+                        exon_intron_count += 1
+                        deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(
+                            aln, deg_count_dict, feature_dictionary)
+                    elif aln.get_tag("RE") == 'N':
+                        # print("Intron")
+                        intron_count += 1
+                        exon_intron_count += 1
+                    elif aln.get_tag("RE") == 'I':
+                        # print("Intergenic")
+                        intergenic_count += 1
     print('Total exonic: ', exon_count)
     print('Total intronic: ', intron_count)
     print('Total exon_intron: ', exon_intron_count)
@@ -585,14 +590,6 @@ def main(cmdl):
     genome = args.genome
     write_degraded_bam = args.write_degraded_bam_file
 
-    # if os.path.isdir(outdir):
-    #overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
-    # if overwrite.lower() == 'n':
-    #    exit(0)
-    # elif overwrite.lower() == 'y':
-    #    shutil.rmtree(outdir)
-    # Commented out above because if used as script (as it is now), there is no user input
-    #print('Output directory already exists')
     assert not os.path.isdir(outdir), "Output directory already exists"
 
     os.mkdir(outdir)
@@ -601,9 +598,7 @@ def main(cmdl):
     _LOGGER.debug("Run dict of TSSes")
     if args.TSSgtf != None:
         TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
-        #deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file)
     else:
-        #deg_count_dict, feature_dictionary = bam_parser_noTSS(args.bamfile)
         print("No TSS file supplied")
 
     # 2021.08.09 Creating directory to write out json dict
@@ -661,15 +656,7 @@ def main(cmdl):
 
         except IOError:
             print("I/O error")
-    #print('Writing 10X-formatted mtx directory...', time.asctime())
-    #write_10_mtx(mergedDict, feature_dictionary)
 
-    # write 10X h5 format
-    # try:
-    #    print('Writing 10X-formatted h5 file...', time.asctime())
-    #    write_10x_h5(mergedDict, feature_dictionary, outdir, LIBRARY_ID, CHEMISTRY, genome=genome)
-    # except IOError:
-    #    print("I/O error")
     print('Writing 10X-formatted h5 file...', time.asctime())
     write_10x_h5(mergedDict, feature_dictionary, LIBRARY_ID, CHEMISTRY, genome=genome)
 
@@ -677,4 +664,8 @@ def main(cmdl):
 
 
 if __name__ == "__main__":
+    # Override sys.argv
+    #sys.argv = ['deg_count_with_UMIs.py', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_H_neg/outs/sorted_subsampledBAM.bam',
+    #            '--TSSgtf', '/mnt/grid/scc/data/CellRanger/references/refdata-gex-GRCh38-2020-A/genes/genes.gtf',
+    #            '--outdir', 'testing_feb10', '--mtx', 'True']
     main(sys.argv[1:])

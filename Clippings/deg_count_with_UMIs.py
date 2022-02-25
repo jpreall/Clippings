@@ -260,25 +260,30 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
             if total_lines_read % 1e7 == 0:
                 print('Lines read:', f'{total_lines_read:,}')
             # Only consider uniquely mapped reads:
-            if aln.mapping_quality == 255:
+            # if aln.mapping_quality == 255:
                 #print("Mapping quality == 255")
-                # Get both exonic and intronic reads
-                if ((aln.get_tag("RE") == 'E') or (aln.get_tag("RE") == 'N')):
-                    #print("Exon or intron")
-                    if aln.get_tag("RE") == 'E':
-                        exon_count += 1
-                        # print("Exon")
-                    elif aln.get_tag("RE") == 'N':
-                        # print("Intron")
-                        intron_count += 1
-                    exon_intron_count += 1
-                    #print("Tag reader start")
-                    deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(
-                        aln, deg_count_dict, feature_dictionary)
-                    #print("Tag reader end")
-                elif aln.get_tag("RE") == 'I':
-                    intergenic_count += 1
-                    # print("Intergenic")
+            if aln.has_tag("xf:i"):
+                # if (aln.get_tag("xf:i") & 8): # working, same as original
+                # working, same as 8 after filter min_cells=1
+                if aln.get_tag("xf:i") == 17 or aln.get_tag("xf:i") == 25:
+                    # print(aln.get_tag("xf:i"))
+                    # Get both exonic and intronic reads
+                    if ((aln.get_tag("RE") == 'E') or (aln.get_tag("RE") == 'N')):
+                        #print("Exon or intron")
+                        if aln.get_tag("RE") == 'E':
+                            exon_count += 1
+                            # print("Exon")
+                        elif aln.get_tag("RE") == 'N':
+                            # print("Intron")
+                            intron_count += 1
+                        exon_intron_count += 1
+                        #print("Tag reader start")
+                        deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(
+                            aln, deg_count_dict, feature_dictionary)
+                        #print("Tag reader end")
+                    elif aln.get_tag("RE") == 'I':
+                        intergenic_count += 1
+                        # print("Intergenic")
     else:
         print("include_introns is False", include_introns is False)
         for aln in chunk:
@@ -287,21 +292,26 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
             if total_lines_read % 1e7 == 0:
                 print('Lines read:', f'{total_lines_read:,}')
             # Only consider uniquely mapped reads:
-            if aln.mapping_quality == 255:
-                # Only get exonic reads
-                if aln.get_tag("RE") == 'E':
-                    #print("Exon only")
-                    exon_count += 1
-                    exon_intron_count += 1
-                    deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(
-                        aln, deg_count_dict, feature_dictionary)
-                elif aln.get_tag("RE") == 'N':
-                    # print("Intron")
-                    intron_count += 1
-                    exon_intron_count += 1
-                elif aln.get_tag("RE") == 'I':
-                    # print("Intergenic")
-                    intergenic_count += 1
+            # if aln.mapping_quality == 255:
+            if aln.has_tag("xf:i"):
+                # if (aln.get_tag("xf:i") & 8): # working, same as original
+                # working, same as 8 after filter min_cells=1
+                if aln.get_tag("xf:i") == 17 or aln.get_tag("xf:i") == 25:
+                    # print(aln.get_tag("xf:i"))
+                    # Only get exonic reads
+                    if aln.get_tag("RE") == 'E':
+                        #print("Exon only")
+                        exon_count += 1
+                        exon_intron_count += 1
+                        deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(
+                            aln, deg_count_dict, feature_dictionary)
+                    elif aln.get_tag("RE") == 'N':
+                        # print("Intron")
+                        intron_count += 1
+                        exon_intron_count += 1
+                    elif aln.get_tag("RE") == 'I':
+                        # print("Intergenic")
+                        intergenic_count += 1
     print('Total exonic: ', exon_count)
     print('Total intronic: ', intron_count)
     print('Total exon_intron: ', exon_intron_count)
@@ -677,4 +687,8 @@ def main(cmdl):
 
 
 if __name__ == "__main__":
+    # Override sys.argv
+    #sys.argv = ['deg_count_with_UMIs.py', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_H_neg/outs/sorted_subsampledBAM.bam',
+    #            '--TSSgtf', '/mnt/grid/scc/data/CellRanger/references/refdata-gex-GRCh38-2020-A/genes/genes.gtf',
+    #            '--outdir', 'testing_feb25', '--mtx', 'True']
     main(sys.argv[1:])

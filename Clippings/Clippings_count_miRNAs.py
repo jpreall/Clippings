@@ -25,25 +25,11 @@ import sys
 import numpy as np
 import pandas as pd
 import os
-import glob
 import pysam
 import anndata
 import argparse
-import shutil
-import h5sparse
-import h5py
-import gtfparse
 import time
 import scanpy as sc
-
-# packages to try to do without:
-# import scanpy as sc
-# import scipy
-# import seaborn as sns
-# import matplotlib.pyplot as pl
-# import gzip
-# import csv
-# import string
 
 
 def attributes_to_columns_from_mirbase_GFF3(file):
@@ -231,14 +217,17 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
             results (pandas DataFrame): Dataframe of all reads and info from pysam.
 
     """
-
     print("Starting count_miRNAs: ", time.asctime())
     import collections
     example_read = None
 
     allmi = {}
     for c in chrom_dict.keys():
+        #if c == 'chr17': #td
+        #    print('this is: ', c) #td
         for m in chrom_dict[c].keys():
+        #    if m =='hsa-mir-21': #td
+        #        print('this is: ', m) #td
             allmi[m] = c
 
     print(BAM)
@@ -264,11 +253,11 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
                 mirna_strand = chrom_dict[chrom][mirna][1]
                 DROSHA_SITE = chrom_dict[chrom][mirna][0]
 
-                if mirna_strand == '+':
+                if mirna_strand == '-':
                     start = chrom_dict[chrom][mirna][0] - 56 - flanks
                     end = chrom_dict[chrom][mirna][0] + flanks
 
-                elif mirna_strand == '-':
+                elif mirna_strand == '+':
                     start = chrom_dict[chrom][mirna][0] - flanks
                     end = chrom_dict[chrom][mirna][0] + 56 + flanks
 
@@ -277,6 +266,7 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
                     if tally % 1e3 == 0:
                         print('Lines read:', f'{tally:,}')
                         # print('count_table: ', count_table)
+
                     if read.has_tag("ts:i"):
                         if read.has_tag('UB') & read.has_tag('CB'):
                             if read.is_reverse:
@@ -416,7 +406,8 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     return raw_with_miRNAs
 
 
-def main(args):
+def main(cmdl):
+    args = _parse_cmdl(cmdl)
     outdir = args.outdir
     genome = args.genome
 
@@ -457,9 +448,12 @@ def main(args):
 
     print('Done with part 2!')
 
+def _parse_cmdl(cmdl):
+    """ Define and parse command-line interface. """
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Clippings",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('BAMFILE', help='Input bam file')
     parser.add_argument('REFERENCE_FILE', help='miRBase gff3 file')
     parser.add_argument('--outdir', dest='outdir', help='Output folder',
@@ -472,9 +466,14 @@ if __name__ == '__main__':
                         help='10x Genomics raw feature bc matrix to concatenate miRNAs to')
     parser.add_argument('--results_table', dest='results_table',
                         help='Write out results table of reading miRNAs as csv', default=True)
+    #parser = logmuse.add_logging_options(parser)
+    return parser.parse_args(cmdl)
 
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit()
-    args = parser.parse_args()
-    main(args)
+if __name__ == '__main__':
+    # Override sys.argv
+#    sys.argv = ['Clippings_count_miRNAs.py', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_H_neg/outs/possorted_genome_bam.bam',
+#                '/grid/preall/home/bhe/microRNA_project/hsa.gff3', '--outdir', 'testing_mar03_CR01_H_neg',
+#                '--genome', '/mnt/grid/scc/data/CellRanger/references/refdata-gex-GRCh38-2020-A/',
+#                '--raw', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_S_plus/outs/raw_feature_bc_matrix.h5']
+    print(sys.argv[1:])
+    main(sys.argv[1:])

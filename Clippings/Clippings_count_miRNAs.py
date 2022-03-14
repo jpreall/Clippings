@@ -25,25 +25,11 @@ import sys
 import numpy as np
 import pandas as pd
 import os
-import glob
 import pysam
 import anndata
 import argparse
-import shutil
-import h5sparse
-import h5py
-import gtfparse
 import time
 import scanpy as sc
-
-# packages to try to do without:
-# import scanpy as sc
-# import scipy
-# import seaborn as sns
-# import matplotlib.pyplot as pl
-# import gzip
-# import csv
-# import string
 
 
 def attributes_to_columns_from_mirbase_GFF3(file):
@@ -231,17 +217,6 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
             results (pandas DataFrame): Dataframe of all reads and info from pysam.
 
     """
-    # ***************************************************to delete variables
-    mir16_dist_list = []
-    mir21_dist_list = []
-    mir6805_dist_list = []
-    mir10394_dist_list = []
-
-    mir16_dist_list_all = []
-    mir21_dist_list_all = []
-    mir6805_dist_list_all = []
-    mir10394_dist_list_all = []
-    # ******************************************************to delete
     print("Starting count_miRNAs: ", time.asctime())
     import collections
     example_read = None
@@ -272,13 +247,9 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
         bh_counter += 1
 
         for chrom in chroms:
-            print('this is the current chrom: ', chrom)
+
             for mirna in mirnas:
-                print('this is the current mirna: ', mirna)
-                if mirna == 'hsa-mir-16-2':
-                    print('this is mir16-2: ', mirna)
-                if mirna == 'hsa-mir-21':
-                    print('this is mir-21: ', mirna)
+
                 mirna_strand = chrom_dict[chrom][mirna][1]
                 DROSHA_SITE = chrom_dict[chrom][mirna][0]
 
@@ -296,21 +267,6 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
                         print('Lines read:', f'{tally:,}')
                         # print('count_table: ', count_table)
 
-                    if read.is_reverse:
-                        distance = read.reference_end - DROSHA_SITE
-                    else:
-                        distance = read.reference_start - DROSHA_SITE
-                    # distance to DROSHA should be no less than 'X'
-                    # ***********************************************
-                    if mirna == 'hsa-mir-16-2':
-                        mir16_dist_list_all.append(abs(distance))
-                    if mirna == 'hsa-mir-21':
-                        mir21_dist_list_all.append(abs(distance))
-                    if mirna == 'hsa-mir-6805':
-                        mir6805_dist_list_all.append(abs(distance))
-                    if mirna == 'hsa-mir-10394':
-                        mir10394_dist_list_all.append(abs(distance))
-
                     if read.has_tag("ts:i"):
                         if read.has_tag('UB') & read.has_tag('CB'):
                             if read.is_reverse:
@@ -318,20 +274,6 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
                             else:
                                 distance = read.reference_start - DROSHA_SITE
                             # distance to DROSHA should be no less than 'X'
-                            #***********************************************
-                            if mirna == 'hsa-mir-16-2':
-                                print('adding mir16: ', mirna)
-                                mir16_dist_list.append(abs(distance))
-                            if mirna == 'hsa-mir-21':
-                                print('adding mir21: ', mirna)
-                                mir21_dist_list.append(abs(distance))
-                            if mirna == 'hsa-mir-6805':
-                                print('adding mir6805: ', mirna)
-                                mir6805_dist_list.append(abs(distance))
-                            if mirna == 'hsa-mir-10394':
-                                print('adding mir6805: ', mirna)
-                                mir10394_dist_list.append(abs(distance))
-                            #**********************************************
                             if abs(distance) < 5:
                                 count_table[mirna].add(read.get_tag("UB"))
                                 MI_READS.write(read)
@@ -528,20 +470,6 @@ def _parse_cmdl(cmdl):
     return parser.parse_args(cmdl)
 
 if __name__ == '__main__':
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('BAMFILE', help='Input bam file')
-    # parser.add_argument('REFERENCE_FILE', help='miRBase gff3 file')
-    # parser.add_argument('--outdir', dest='outdir', help='Output folder',
-    #                    default="raw_feature_matrix_with_miRNAs")
-    # parser.add_argument('--genome', dest='genome',
-    #                     help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
-    # need to implement .mtx
-    # parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
-    # parser.add_argument('--raw', dest='raw', required=True,
-    #                    help='10x Genomics raw feature bc matrix to concatenate miRNAs to')
-    # parser.add_argument('--results_table', dest='results_table',
-    #                     help='Write out results table of reading miRNAs as csv', default=True)
-
     # Override sys.argv
 #    sys.argv = ['Clippings_count_miRNAs.py', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_H_neg/outs/possorted_genome_bam.bam',
 #                '/grid/preall/home/bhe/microRNA_project/hsa.gff3', '--outdir', 'testing_mar03_CR01_H_neg',
@@ -549,9 +477,3 @@ if __name__ == '__main__':
 #                '--raw', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_S_plus/outs/raw_feature_bc_matrix.h5']
     print(sys.argv[1:])
     main(sys.argv[1:])
-
-   # if len(sys.argv) == 1:
-   #     parser.print_help()
-   #     sys.exit()
-   # args = parser.parse_args()
-   # main(args)

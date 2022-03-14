@@ -41,7 +41,7 @@ def _parse_cmdl(cmdl):
     """ Define and parse command-line interface. """
 
     parser = argparse.ArgumentParser(
-        description="Degradation dictionary using ParaReadProcessor "
+        description="Degradation dictionary using ParaReadProcessor"
                     "implementation",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -205,11 +205,10 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
                     total_counts += 1
 
                     # Only take degraded RNAs
-                    #CLIPPED = aln.has_tag("ts:i")
+                    CLIPPED = aln.has_tag("ts:i")
 
-                    #if NOT_TSS & VALID_GENE & CLIPPED:
-                    #if NOT_TSS & VALID_GENE:
-                    if VALID_GENE:
+                    if NOT_TSS & VALID_GENE & CLIPPED:
+                    #if VALID_GENE:
                         if gene_id not in deg_count_dict[cell_barcode].keys():
                             deg_count_dict[cell_barcode][gene_id] = set()
 
@@ -221,8 +220,8 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
                             NO_UB += 1
 
                     # keep a running tally of all TSS mapping counts:
-                   # elif IS_TSS & CLIPPED & VALID_GENE:
-                    elif IS_TSS & VALID_GENE:
+                    elif IS_TSS & CLIPPED & VALID_GENE:
+                    #elif IS_TSS & VALID_GENE:
                         total_TSS_counts += 1
 
         return deg_count_dict, total_counts, total_TSS_counts, NO_UB
@@ -261,25 +260,28 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
             if total_lines_read % 1e7 == 0:
                 print('Lines read:', f'{total_lines_read:,}')
             # Only consider uniquely mapped reads:
-            if aln.mapping_quality == 255:
-                #print("Mapping quality == 255")
-                # Get both exonic and intronic reads
-                if ((aln.get_tag("RE") == 'E') or (aln.get_tag("RE") == 'N')):
-                    #print("Exon or intron")
-                    if aln.get_tag("RE") == 'E':
-                        exon_count += 1
-                        # print("Exon")
-                    elif aln.get_tag("RE") == 'N':
-                        # print("Intron")
-                        intron_count += 1
-                    exon_intron_count += 1
-                    #print("Tag reader start")
-                    deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(
-                        aln, deg_count_dict, feature_dictionary)
-                    #print("Tag reader end")
-                elif aln.get_tag("RE") == 'I':
-                    intergenic_count += 1
-                    # print("Intergenic")
+            #if aln.mapping_quality == 255:
+            if aln.has_tag("xf:i"):
+                # if (aln.get_tag("xf:i") & 8): # working, same as original
+                if aln.get_tag("xf:i") == 17 or aln.get_tag("xf:i") == 25: # working, same as 8 after filter min_cells=1
+                    #print("Mapping quality == 255")
+                    # Get both exonic and intronic reads
+                    if ((aln.get_tag("RE") == 'E') or (aln.get_tag("RE") == 'N')):
+                        #print("Exon or intron")
+                        if aln.get_tag("RE") == 'E':
+                            exon_count += 1
+                            # print("Exon")
+                        elif aln.get_tag("RE") == 'N':
+                            # print("Intron")
+                            intron_count += 1
+                        exon_intron_count += 1
+                        #print("Tag reader start")
+                        deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(
+                            aln, deg_count_dict, feature_dictionary)
+                        #print("Tag reader end")
+                    elif aln.get_tag("RE") == 'I':
+                        intergenic_count += 1
+                        # print("Intergenic")
     else:
         print("include_introns is False", include_introns is False)
         for aln in chunk:

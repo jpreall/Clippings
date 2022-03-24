@@ -198,7 +198,7 @@ def fix_chr_chromnames(chrom_dict, BAM):
     return chrom_dict
 
 
-def count_miRNAs(BAM, chrom_dict, flanks=0):
+def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
     """
     Reads bamfile and stores read information into a pandas DataFrame and counts number
     of each miRNA. Also outputs miRNA labelled reads as a bam file with index.
@@ -263,7 +263,7 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
 
                 for read in alignments.fetch(chrom, start, end):
                     tally += 1
-                    if tally % 1e3 == 0:
+                    if tally % 1e5 == 0:
                         print('Lines read:', f'{tally:,}')
                         # print('count_table: ', count_table)
 
@@ -317,7 +317,7 @@ def count_miRNAs(BAM, chrom_dict, flanks=0):
     print("Starting .bai index file writing: ", time.asctime())
     # Write the .bai index file
     print("Sorting output...")
-    OUTBAM_FILENAME = 'sorted_miRNA_reads.bam'
+    OUTBAM_FILENAME = sampleName + '_sorted_miRNA_reads.bam'
     pysam.sort("-o", OUTBAM_FILENAME, "tmp_miRNA_matching.bam")
     os.remove("tmp_miRNA_matching.bam")
     if os.path.exists('tmp_miRNA_matching.bam'):
@@ -410,7 +410,6 @@ def main(cmdl):
     args = _parse_cmdl(cmdl)
     outdir = args.outdir
     genome = args.genome
-
     if os.path.isdir(outdir):
         # overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
         # if overwrite.lower() == 'n':
@@ -421,6 +420,17 @@ def main(cmdl):
         print('Output directory already exists')
     os.mkdir(outdir)
 
+    alignments = pysam.AlignmentFile(args.BAMFILE, "rb")
+    sampleNameFinder = 0
+    for read in alignments.fetch(until_eof=True):
+        if read.has_tag("RG"):
+            sampleName = read.get_tag("RG").split(":")[0]
+            break
+        else:
+            sampleNameFinder += 1
+            if sampleNameFinder == 100:
+                break
+
     print('Reading in gff3 file ...')
     miRNA_anno_df = attributes_to_columns_from_mirbase_GFF3(args.REFERENCE_FILE)
     PARENT_DICT = dict_of_parent_names(miRNA_anno_df)
@@ -428,13 +438,13 @@ def main(cmdl):
 
     print('Detecting if BAM user \'chr\' prefix...')
     chrom_dict = fix_chr_chromnames(chrom_dict, args.BAMFILE)
-    count_table, example_read, results = count_miRNAs(args.BAMFILE, chrom_dict)
+    count_table, example_read, results = count_miRNAs(args.BAMFILE, chrom_dict, sampleName)
     print('Done with part 1!')
 
     raw_feature_bc_matrix = sc.read_10x_h5(args.raw)
     raw_feature_bc_matrix.var_names_make_unique()
     raw_with_miRNAs = miRNA_to_featureMatrix(results, raw_feature_bc_matrix)
-
+    raw_with_miRNAs.var['sample_name'] = sampleName
     outfile = os.path.join(outdir, 'raw_feature_matrix_with_miRNAs.h5ad')
     raw_with_miRNAs.write(outfile)
 
@@ -472,7 +482,7 @@ def _parse_cmdl(cmdl):
 if __name__ == '__main__':
     # Override sys.argv
 #    sys.argv = ['Clippings_count_miRNAs.py', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_H_neg/outs/possorted_genome_bam.bam',
-#                '/grid/preall/home/bhe/microRNA_project/hsa.gff3', '--outdir', 'testing_mar03_CR01_H_neg',
+#                '/grid/preall/home/bhe/microRNA_project/hsa.gff3', '--outdir', 'testing_mar22_CR01_H_neg',
 #                '--genome', '/mnt/grid/scc/data/CellRanger/references/refdata-gex-GRCh38-2020-A/',
 #                '--raw', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_S_plus/outs/raw_feature_bc_matrix.h5']
     print(sys.argv[1:])

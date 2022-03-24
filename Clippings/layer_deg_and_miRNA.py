@@ -8,6 +8,40 @@ import scanpy as sc
 import argparse
 import sys
 import os
+import glob
+
+def load_from_folder(folder_path, min_counts=200, verbose=True):
+    """
+    Loading and concatenating multiple samples' raw miRNA with deg_count .h5ad files.
+    """
+    matrix_list = glob.glob(os.path.join(folder_path, '*.h5ad'))
+    initial_matrix = sc.read(matrix_list[0])
+    if verbose:
+        print(initial_matrix.var['sample_name'][0] + ' prefilter shape: ', initial_matrix.shape)
+        sc.pp.filter_cells(initial_matrix, min_counts=min_counts)
+        print(initial_matrix.var['sample_name'][0] + ' post-filter shape: ', initial_matrix.shape)
+    else:
+        sc.pp.filter_cells(initial_matrix, min_counts=min_counts)
+
+    non_initial_dict = {}  # dictionary holding all anndata objs to be combined, but not the initial one
+    for file in matrix_list[1:]:
+        non_initial_dict[file] = sc.read(file)
+        if verbose:
+            print()
+            print(non_initial_dict[file].var['sample_name'][0] + ' prefilter shape: ', non_initial_dict[file].shape)
+            sc.pp.filter_cells(non_initial_dict[file], min_counts=min_counts)
+            print(non_initial_dict[file].var['sample_name'][0] + ' prefilter shape: ', non_initial_dict[file].shape)
+        else:
+            sc.pp.filter_cells(non_initial_dict[file], min_counts=min_counts)
+
+    # concatenate the matrices to the initial matrix
+    # set batch category equal to the sample_name of each matrix for identification
+    combined = initial_matrix.concatenate(*list(non_initial_dict.values()), batch_key=None,
+                               batch_categories=[initial_matrix.var['sample_name'][0]] + [
+                                   list(non_initial_dict.values())[index].var['sample_name'][0] for index in
+                                   range(len(list(non_initial_dict.values())))], join='outer')
+    return combined
+
 
 def main(args):
     outdir = args.outdir

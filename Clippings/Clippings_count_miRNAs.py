@@ -30,6 +30,7 @@ import anndata
 import argparse
 import time
 import scanpy as sc
+import json
 
 
 def attributes_to_columns_from_mirbase_GFF3(file):
@@ -239,15 +240,22 @@ def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
     tally = 0
     NO_UB = 0
 
-    bh_counter = 0
+    miRNA_dist_dict = collections.defaultdict(dict)
+
     for i in range(len(allmi.keys())):
         m = list(allmi.keys())[i]
         chroms = [allmi[m]]
         mirnas = [m]
-        bh_counter += 1
+
+        dist_DROSHA_dict = dict.fromkeys(range(-4, 5), 0)
+        miRNA_dist_dict[m] = dist_DROSHA_dict
+        #top_miRNAs_sc = ['hsa-mir-16-2', 'hsa-mir-10394', 'hsa-mir-4709', 'hsa-mir-6805', 'hsa-mir-10393', 'hsa-mir-6797',
+        #                 'hsa-mir-103a-2', 'hsa-mir-7111', 'hsa-mir-101-1', 'hsa-mir-21']
+
+        #if m in top_miRNAs_sc:
+        #    print('top_miRNAs_sc: ', m)
 
         for chrom in chroms:
-
             for mirna in mirnas:
 
                 mirna_strand = chrom_dict[chrom][mirna][1]
@@ -269,14 +277,21 @@ def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
 
                     if read.has_tag("ts:i"):
                         if read.has_tag('UB') & read.has_tag('CB'):
-                            if read.is_reverse:
-                                distance = read.reference_end - DROSHA_SITE
-                            else:
+                            if read.is_reverse:  # basically '-' strand
+                                #distance = read.reference_end - DROSHA_SITE
+                                distance = DROSHA_SITE - read.reference_end
+                            else:  # basically '+' strand
                                 distance = read.reference_start - DROSHA_SITE
                             # distance to DROSHA should be no less than 'X'
                             if abs(distance) < 5:
+                                initial_len = len(count_table[mirna])
                                 count_table[mirna].add(read.get_tag("UB"))
+                                # counting the UB's distance to DROSHA if condition met
+                                if len(count_table[mirna]) != initial_len:
+                                    miRNA_dist_dict[m][distance] += 1
+
                                 MI_READS.write(read)
+
                                 if read.cigarstring != '56M':
                                     example_read = read
 
@@ -337,7 +352,7 @@ def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
     count_table = pd.DataFrame(count_table, index=['count']).T
 
     print("Finish count_miRNAs: ", time.asctime())
-    return count_table, example_read, results
+    return count_table, example_read, results, miRNA_dist_dict
 
 
 # STOLEN AND BORKED, STILL TODO
@@ -363,6 +378,65 @@ def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
 """
 
 
+def dist_toDrosha_table(path_to_json, min_counts=10, scaleby='total'):
+    if min_counts < 5:
+        raise ValueError('min_counts must be at least 5 in order to label bogus miRNAs')
+    def data_loader(path_to_json):
+        f = open(path_to_json)
+        # returns JSON object as
+        # a dictionary
+        data = json.load(f)
+        f.close()
+        droshaDist = pd.DataFrame(data).T
+        print('top 10 miRNA counts', droshaDist.sum(1).sort_values(ascending=False).head(10))
+        return droshaDist
+
+    droshaDist = data_loader(path_to_json)
+    droshaDist_sliced = droshaDist[droshaDist.sum(1) >= min_counts].copy()
+    droshaDist_sliced.loc[:, 'rowSum'] = droshaDist_sliced.sum(1)
+    droshaDist_sliced = droshaDist_sliced.sort_values(by='rowSum', ascending=False)
+    del droshaDist_sliced['rowSum']
+
+    if scaleby == 'max':
+        droshaDist_sliced_norm = droshaDist_sliced.div(droshaDist_sliced.max(axis=1), axis=0)
+    elif scaleby == 'total':
+        droshaDist_sliced_norm = droshaDist_sliced.div(droshaDist_sliced.sum(axis=1), axis=0)
+    elif scaleby == 'none':
+        droshaDist_sliced_norm = droshaDist
+    else:
+        raise ValueError('scaleby must be one of the following: max, total, none')
+    # fill in any na values
+    droshaDist_sliced_norm = droshaDist_sliced_norm.fillna(0)
+
+    #sns.clustermap(droshaDist_sliced_norm, col_cluster=False, row_cluster=False, yticklabels=True)
+    return droshaDist_sliced_norm
+
+
+def largest_index(arr):
+    if len(arr) < 9:
+        raise ValueError('length of array must be greater than 9 in order to find DROSHA pileup pattern')
+    midpoint = len(arr) // 2
+    # only look at center near DROSHA site
+    index_of_max = 0
+    for i in range(1, len(arr), 1):
+        if arr[i] > arr[index_of_max]:
+            index_of_max = i
+    return index_of_max
+
+
+def label_bogus(arr):
+    peak = largest_index(arr)
+    if arr[peak] < 0.5:
+        return True  # if largest pileup < 50% then miRNA is bogus
+    else:
+        if sum(arr[peak:peak + 3]) > 0.75:
+            return False  # if the right side (up to 2bp away) DROSHA site pileup is greater than 75% then not bogus
+        elif sum(arr[peak - 2:peak]) > 0.75:
+            return False  # if the left side (up to 2bp away) DROSHA site pileup is greater than 75% then not bogus
+        else:
+            return True  # if no distinct pileup, then miRNA is considered bogus
+
+
 def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     """
     Add miRNAs to raw feature bc matrix.
@@ -382,7 +456,7 @@ def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
     barcode_miRNA_df = count_miRNAs_result[['CB', 'miRNA']].pivot_table(
         index='CB', columns='miRNA', aggfunc=len, fill_value=0)
     print('miRNAs by UMI count')
-    print(barcode_miRNA_df.sum(0).sort_values(ascending=False))
+    print(barcode_miRNA_df.sum(0).sort_values(ascending=False).head(10))
 
     # cast barcode_miRNA_df as anndata and match up the .var attributes
     barcode_miRNA_adata = sc.AnnData(barcode_miRNA_df)
@@ -438,13 +512,24 @@ def main(cmdl):
 
     print('Detecting if BAM user \'chr\' prefix...')
     chrom_dict = fix_chr_chromnames(chrom_dict, args.BAMFILE)
-    count_table, example_read, results = count_miRNAs(args.BAMFILE, chrom_dict, sampleName)
+    count_table, example_read, results, miRNA_dist_dict = count_miRNAs(args.BAMFILE, chrom_dict, sampleName)
+    with open(os.path.join(outdir, "distance_to_DROSHA_dict.json"), "w") as outfile:
+        json.dump(miRNA_dist_dict, outfile)
     print('Done with part 1!')
 
     raw_feature_bc_matrix = sc.read_10x_h5(args.raw)
     raw_feature_bc_matrix.var_names_make_unique()
     raw_with_miRNAs = miRNA_to_featureMatrix(results, raw_feature_bc_matrix)
     raw_with_miRNAs.var['sample_name'] = sampleName
+
+    # label bogus miRNAs in drosha dist table
+    drosha_table = dist_toDrosha_table(os.path.join(outdir, "distance_to_DROSHA_dict.json"))
+    drosha_table.index += '_DroshaProd'  # rename index so we can merge table with raw_with_miRNAs
+    drosha_table['bogus_miRNA'] = drosha_table.apply(lambda row: label_bogus(row), axis=1)
+
+    # merge drosha dist table with raw_with_miRNAs table
+    raw_with_miRNAs.var = raw_with_miRNAs.var.join(drosha_table['bogus_miRNA'])
+
     outfile = os.path.join(outdir, 'raw_feature_matrix_with_miRNAs.h5ad')
     raw_with_miRNAs.write(outfile)
 

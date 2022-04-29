@@ -216,6 +216,7 @@ def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
             count_table (pandas DataFrame): Dataframe of counts of each miRNA.
             example_read (pysam AlignmentSegment): Read as AlignmentSegment.
             results (pandas DataFrame): Dataframe of all reads and info from pysam.
+            miRNA_dist_dict (dict): Dictionary with distance to Drosha counts for each miRNA.
 
     """
     print("Starting count_miRNAs: ", time.asctime())
@@ -355,30 +356,21 @@ def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
     return count_table, example_read, results, miRNA_dist_dict
 
 
-# STOLEN AND BORKED, STILL TODO
-"""
-
-    # write 10X mtx format
-    if args.mtx:
-        try:
-            print('Writing 10X-formatted mtx directory...')
-            write_10_mtx(deg_count_dict, feature_dictionary, outdir)
-
-        except IOError:
-            print("I/O error")
-
-    # write 10X h5 format
-    try:
-        print('Writing 10X-formatted h5 file...')
-        write_10x_h5(deg_count_dict, feature_dictionary, outdir,
-                     LIBRARY_ID, CHEMISTRY, genome=genome)
-
-    except IOError:
-        print("I/O error")
-"""
-
-
 def dist_toDrosha_table(path_to_json, min_counts=10, scaleby='total'):
+    """
+    Creates distance to drosha count table for miRNAs scaled by max value or total counts for given a json file,
+    which is then used downstream to label bogus miRNAs.
+
+    Args:
+        path_to_json (str): Path to json file with dictionary of distance to Drosha counts for each miRNA.
+        min_counts (int): Min counts to consider for labeling bogus miRNAs. Must be at least 5 to calculate pileups.
+        scaleby (str): Method to scale counts to 0-1.
+
+    Returns:
+        droshaDist_sliced_norm (Pandas Dataframe): Dataframe with scaled counts of distance to drosha for each miRNA.
+        To be used for labeling bogus miRNAs.
+
+    """
     if min_counts < 5:
         raise ValueError('min_counts must be at least 5 in order to label bogus miRNAs')
     def data_loader(path_to_json):
@@ -413,6 +405,16 @@ def dist_toDrosha_table(path_to_json, min_counts=10, scaleby='total'):
 
 
 def largest_index(arr):
+    """
+    Find the index with the largest value in an array
+
+    Args:
+        arr (array_like): Array containing number with largest value desired.
+
+    Returns:
+       index_of_max (int): the index of the largest number in arr.
+
+    """
     if len(arr) < 9:
         raise ValueError('length of array must be greater than 9 in order to find DROSHA pileup pattern')
     midpoint = len(arr) // 2
@@ -425,6 +427,16 @@ def largest_index(arr):
 
 
 def label_bogus(arr):
+    """
+       Label bogus miRNAs based on Drosha site read pileups.
+
+       Args:
+           arr (array_like): Array containing relative drosha site pileup information.
+
+       Returns:
+           boolean: True/False if the miRNA should be considered bogus.
+
+    """
     peak = largest_index(arr)
     if arr[peak] < 0.5:
         return True  # if largest pileup < 50% then miRNA is bogus

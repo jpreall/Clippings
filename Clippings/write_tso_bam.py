@@ -136,59 +136,6 @@ def main(args):
         print('Path doesn\'t exist')
     print('Finished script', time.asctime())
 
-def write_degraded_bam(full_path_to_BAM, OUTBAM_FILENAME):
-    
-	'''Writes a subsetted BAM file containing only reads with the ts:i tag
-	There is probably a good way to parallelize this in the future
-	'''
-    
-	BAM = os.path.basename(full_path_to_BAM)  
-	print('Extracting TSO-containing reads from',BAM,'...')
-    
-	alignments = pysam.AlignmentFile(BAM, "rb")
-	OUTBAM = pysam.AlignmentFile(OUTBAM_FILENAME, "wb", template=alignments)
-    
-	tally = 0
-    
-	for read in alignments.fetch(until_eof=True):
-		tally += 1
-		if tally % 1e7 == 0:
-			print('Lines read:',f'{tally:,}')
-			
-		if read.has_tag("ts:i"):
-			OUTBAM.write(read)
-
-	OUTBAM.close()
-	alignments.close()
-
-
-    ## Write the .bai index file
-	if os.path.exists(OUTBAM_FILENAME):
-		print('Generating BAM index...')
-		pysam.index(OUTBAM_FILENAME)
-		
-		print('Output file:',OUTBAM_FILENAME)
-		print('File size = ',np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2,2),'MB')	
-		
-	OUTBAM.close()
-        
-        
-def main(args):
-	outpath = args.out ## NEED A FRIENDLY WAY TO CHECK IF PATH EXISTS
-	BAM = args.BAMFILE
-	full_path_to_BAM = os.path.realpath(BAM)
-	
-	if outpath == None:
-		outpath = os.path.dirname(full_path_to_BAM)
-		
-	if not os.path.isdir(outpath):
-		print('Warning: output path not found')
-        
-	OUTBAM_FILENAME = os.path.join(outpath,'TSO_reads.bam')
-	
-	write_degraded_bam(full_path_to_BAM, OUTBAM_FILENAME)
-    
->>>>>>> main
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

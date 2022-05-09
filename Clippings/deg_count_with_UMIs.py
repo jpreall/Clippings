@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 # $ -cwd
 # $ -v PATH,LD_LIBRARY_PATH
+
 """
-Count mapped reads harboring TSO sub-sequene
+Count mapped reads harboring TSO sub-sequence
 Input:
-    BAM file contains trimmed reads
-    Only works on Cell Ranger v4 or newer output without pre-trimming TSO
+BAM file contains trimmed reads
+Only works on Cell Ranger v4 or newer output without pre-trimming TSO
 Author: jpreall@cshl.edu
 Date: 2021-04
 """

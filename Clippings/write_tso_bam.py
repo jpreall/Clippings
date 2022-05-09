@@ -6,9 +6,10 @@ Writes a subsetted BAM file containing only reads with the ts:i tag
 Inputs:
     BAMFILE = BAM file produced by Cellranger v4+ with TSO reads tagged with ts:i
     optional:
-        --out = specific desired output folder.  defaults to same is input file
+    --out = specific desired output folder.  defaults to same is input file
     Usage: python write_tso_bam.py BAMFILE
     TODO: doesn't work unless in directory of bam (?) Need to update code
+
 Author: jpreall@cshl.edu
 Date: 2021-08
 """

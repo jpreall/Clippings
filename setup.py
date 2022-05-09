@@ -31,6 +31,15 @@ INSTALL_REQUIRES = [
       'logmuse'
 ]
 
+docs_extras = [
+    'Sphinx >= 3.0.0',  # Force RTD to use >= 3.0.0
+    'docutils',
+    'pylons-sphinx-themes >= 1.0.8',  # Ethical Ads
+    'pylons_sphinx_latesturl',
+    'repoze.sphinx.autointerface',
+    'sphinxcontrib-autoprogram',
+]
+
 setup(name=PACKAGE_NAME,
       version=VERSION,
       description=DESCRIPTION,
@@ -41,5 +50,7 @@ setup(name=PACKAGE_NAME,
       author_email=AUTHOR_EMAIL,
       url=URL,
       install_requires=INSTALL_REQUIRES,
-      packages=find_packages()
+extras_require={'docs': docs_extras}
+      packages=find_packages(),
+      extras_require={'docs': docs_extras}
       )

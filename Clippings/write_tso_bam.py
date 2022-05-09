@@ -62,7 +62,7 @@ def get_template(full_path_to_BAM):
     return alignments_template
 
 
-<<<<<<< HEAD
+
 def main(args):
     import time
     print('****MAIN STEP****: START', time.asctime())
@@ -135,7 +135,7 @@ def main(args):
     else:
         print('Path doesn\'t exist')
     print('Finished script', time.asctime())
-=======
+
 def write_degraded_bam(full_path_to_BAM, OUTBAM_FILENAME):
     
 	'''Writes a subsetted BAM file containing only reads with the ts:i tag

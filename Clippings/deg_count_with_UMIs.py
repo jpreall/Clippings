@@ -236,6 +236,8 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
     intron_count = 0
     intergenic_count = 0
     exon_intron_count = 0
+    xf_17_25_counts = 0
+    total_xf_counts = 0
 
     if type(TSS_dict) != dict:
         print('Warning, TSS dictionary generation failed.  Exiting.')
@@ -250,8 +252,8 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
 
     print('Counting degraded reads...', time.asctime())
 
-    print("include_introns", include_introns)
-    print("include_introns is True", include_introns is True)
+    #print("include_introns", include_introns)
+    #print("include_introns is True", include_introns is True)
     if include_introns:
         print("include_introns is True", include_introns is True)
         for aln in chunk:
@@ -294,9 +296,11 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
             # Only consider uniquely mapped reads:
             # if aln.mapping_quality == 255:
             if aln.has_tag("xf:i"):
+                total_xf_counts += 1
                 # if (aln.get_tag("xf:i") & 8): # working, same as original
                 # working, same as 8 after filter min_cells=1
                 if aln.get_tag("xf:i") == 17 or aln.get_tag("xf:i") == 25:
+                    xf_17_25_counts += 1
                     # print(aln.get_tag("xf:i"))
                     # Only get exonic reads
                     if aln.get_tag("RE") == 'E':
@@ -312,10 +316,12 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
                     elif aln.get_tag("RE") == 'I':
                         # print("Intergenic")
                         intergenic_count += 1
-    print('Total exonic: ', exon_count)
-    print('Total intronic: ', intron_count)
-    print('Total exon_intron: ', exon_intron_count)
-    print('Total intergenic: ', intergenic_count)
+    #print('Total xf: ', total_xf_counts)
+    #print('Total xf17_25: ', xf_17_25_counts)
+    #print('Total exonic: ', exon_count)
+    #print('Total intronic: ', intron_count)
+    #print('Total exon_intron: ', exon_intron_count)
+    #print('Total intergenic: ', intergenic_count)
     # broke for total_counts 2021.09.27 maybe because some iterations through aln do not have GN tag for gene name, thus creating an error(?)
     #print('Total counts:', total_counts)
     # broke: UnboundLocalError: local variable 'total_TSS_counts' referenced before assignment
@@ -688,7 +694,9 @@ def main(cmdl):
 
 if __name__ == "__main__":
     # Override sys.argv
-    #sys.argv = ['deg_count_with_UMIs.py', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_H_neg/outs/sorted_subsampledBAM.bam',
-    #            '--TSSgtf', '/mnt/grid/scc/data/CellRanger/references/refdata-gex-GRCh38-2020-A/genes/genes.gtf',
-    #            '--outdir', 'testing_feb25', '--mtx', 'True']
+    sys.argv = ['deg_count_with_UMIs.py',
+                '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_S_plus/outs/possorted_genome_bam.bam',
+                '--TSSgtf',
+                '/mnt/grid/scc/data/CellRanger/references/refdata-cellranger-GRCh38-1.2.0/genes/genes.gtf',
+                '--outdir', 'CR01_S_plus_120genome_testing_may09', '--mtx', 'True']
     main(sys.argv[1:])

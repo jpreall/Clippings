@@ -74,7 +74,7 @@ def _parse_cmdl(cmdl):
 class ReadCounter(ParaReadProcessor):
     """Create child class ReadCounter from parent ParaReadProcessor.
 
-    ReadCounter contains additional arguements such as feature dictionary
+    ReadCounter contains additional arguments such as feature dictionary
     and transcription start site dictionary.
 
     """
@@ -94,22 +94,19 @@ class ReadCounter(ParaReadProcessor):
         if 'features' in kwargs:
             features = kwargs.pop('features')
         else:
-            args = list(features)
-            features = args.pop()
+            raise Exception("Missing features parameter")
         if 'TSSdictionary' in kwargs:
             TSSdictionary = kwargs.pop('TSSdictionary')
         else:
-            TSSdictionary = args.pop()
+            raise Exception("Missing TSSdictionary parameter")
         if 'write_degraded_bam_file' in kwargs:
             write_degraded_bam_file = kwargs.pop('write_degraded_bam_file')
         else:
-            args = list(write_degraded_bam_file)
-            write_degraded_bam_file = args.pop()
+            raise Exception("Missing write_degraded_bam_file parameter")
         if 'include_introns' in kwargs:
             include_introns = kwargs.pop('include_introns')
         else:
-            args = list(include_introns)
-            include_introns = args.pop()
+            raise Exception("Missing include_introns parameter")
 
         ParaReadProcessor.__init__(self, *args, **kwargs)
         self._features = features
@@ -164,8 +161,8 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
         chunk (type): A chunk (chromosome) of sequencing reads from bam file.
         TSS_dict (dict): Dictionary of transcription start sites.
         feature_dictionary (dict): Dictionary of gene ids and gene names.
-        write_degraded_bam_file (bool): True to write a degraded bam file. False to not.
-        intron_introns (bool):
+        write_degraded_bam_file (bool): True to write a degraded bam file. False to not. *Not yet implemented*
+        include_introns (bool): True to include intronic reads during degradation counting.
 
     Returns:
         dict: Dictionary of cell barcodes and degraded counts.
@@ -214,8 +211,8 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
 
                         if aln.has_tag("UB"):
                             deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
-                            if write_degraded_bam_file:
-                                OUTPUT_BAM.write(aln)
+                            #if write_degraded_bam_file: #TODO: write_degraded_bam_file
+                            #    OUTPUT_BAM.write(aln)
                         else:
                             NO_UB += 1
 
@@ -247,9 +244,9 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
     #alignments = pysam.AlignmentFile(bamfile, "rb")
 
     # need to check to see if this feature works
-    if write_degraded_bam_file:
-        OUTPUT_BAM = pysam.AlignmentFile('degraded_not_TSS.bam', "wb", template=alignments)
-        print('Writing TSS-filtered degraded BAM file to degraded_not_TSS.bam')
+    #if write_degraded_bam_file: # TODO: write_degraded_bam_file
+    #    OUTPUT_BAM = pysam.AlignmentFile('degraded_not_TSS.bam', "wb", template=alignments)
+    #    print('Writing TSS-filtered degraded BAM file to degraded_not_TSS.bam')
 
     print('Counting degraded reads...', time.asctime())
 
@@ -335,8 +332,8 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
         for gene in deg_count_dict[cell].keys():
             deg_count_dict[cell][gene] = len(deg_count_dict[cell][gene])
 
-    if write_degraded_bam_file:
-        OUTPUT_BAM.close()
+    #if write_degraded_bam_file: # TODO: write_degraded_bam_file
+    #    OUTPUT_BAM.close()
 
     return deg_count_dict  # , feature_dictionary
 
@@ -587,7 +584,6 @@ def main(cmdl):
     """
     runner
     """
-    # FileNotFoundError: [Errno 2] No such file or directory: '/cm/local/apps/uge/var/spool.p7444/bam08/files/3M-february-2018.txt.gz'
     FILES_PATH = path.abspath(path.join(path.dirname(__file__), "../files/"))
     print("This is the absolute file path: ", FILES_PATH)
     print("This is pkg_resources: ", pkg_resources.resource_filename(
@@ -602,14 +598,6 @@ def main(cmdl):
     genome = args.genome
     write_degraded_bam = args.write_degraded_bam_file
 
-    # if os.path.isdir(outdir):
-    #overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
-    # if overwrite.lower() == 'n':
-    #    exit(0)
-    # elif overwrite.lower() == 'y':
-    #    shutil.rmtree(outdir)
-    # Commented out above because if used as script (as it is now), there is no user input
-    #print('Output directory already exists')
     assert not os.path.isdir(outdir), "Output directory already exists"
 
     os.mkdir(outdir)
@@ -618,12 +606,10 @@ def main(cmdl):
     _LOGGER.debug("Run dict of TSSes")
     if args.TSSgtf != None:
         TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
-        #deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file)
     else:
-        #deg_count_dict, feature_dictionary = bam_parser_noTSS(args.bamfile)
         print("No TSS file supplied")
 
-    # 2021.08.09 Creating directory to write out json dict
+    # Creating directory to write out json dict
     jsonFolder = 'jsonFolder'
     jsonPath = os.path.join(os.getcwd(), jsonFolder)
     os.mkdir(jsonPath)
@@ -695,9 +681,4 @@ def main(cmdl):
 
 if __name__ == "__main__":
     # Override sys.argv
-    sys.argv = ['deg_count_with_UMIs.py',
-                '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_S_plus/outs/possorted_genome_bam.bam',
-                '--TSSgtf',
-                '/mnt/grid/scc/data/CellRanger/references/refdata-cellranger-GRCh38-1.2.0/genes/genes.gtf',
-                '--outdir', 'CR01_S_plus_120genome_testing_may09', '--mtx', 'True']
     main(sys.argv[1:])

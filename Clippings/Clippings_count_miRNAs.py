@@ -14,7 +14,7 @@ Inputs:
     outdir
     raw = Raw matrix to tack miRNAs onto the variable columns
     # TODO: Add ability to use miRNA GTF/coordinate files produced elsewhere
-
+    # TODO: Change behavior of miRNA GFF3 references: Instead, specify genome version and pull from a pre-packaged file
     Usage: Clippings_count_miRNA.py BAMFILE REFERENCE_FILE --genome --outdir --raw
 
 Author: jpreall@cshl.edu
@@ -31,8 +31,9 @@ import argparse
 import time
 import scanpy as sc
 import json
+import re
 
-
+#DEPRECATED
 def attributes_to_columns_from_mirbase_GFF3(file):
     """
     Given a GFF3 file from mirbase, turn attributes into pandas dataframe columns.
@@ -47,7 +48,6 @@ def attributes_to_columns_from_mirbase_GFF3(file):
 
     print("Starting attirubtes_to_columns_from_mirbase_GFF3: ", time.asctime())
 
-    import pandas as pd
     columns = ['seqname', 'source', 'feature', 'start',
                'end', 'score', 'strand', 'frame', 'attributes']
     attribute_df = pd.read_table(file, comment='#', header=None)
@@ -80,24 +80,74 @@ def attributes_to_columns_from_mirbase_GFF3(file):
     print("Finish attirubtes_to_columns_from_mirbase_GFF3: ", time.asctime())
     return miRNA_anno_df
 
+def read_mirbase_gff3(file):
+    """
+    Reads a GFF3-formatted file from miRBase into a pandas dataframe.
+    Note, a specific column format is expected:
+        1. seqname  --> chromosome name
+        2. source --> unused data source column
+        3. feature --> indicates mature miRNA or precursor
+        4. start --> start genomic coordinate
+        5. end --> end genomic coordinate
+        6. score --> unused
+        7. strand --> +/- genomic orientation
+        8. frame --> unused (non-coding!)
+        9. attributes --> ';' delimited additional attributes. Extensible.
+
+        The 'attributes' column will be expanded to create N additional columns
+        to capture all non-redundant attributes present in the GFF3 file.
+
+    Args:
+        file (string path): Path to .gff3 formatted file with miRNA annotations downloaded from miRBase.
+
+    Returns:
+        pandas DataFrame: Dataframe with columns containing the attributes from GFF3 file.
+
+    """
+    columns = [
+        'seqname', 'source', 'feature', 'start', 
+        'end', 'score', 'strand', 'frame', 'attributes']
+
+    df = pd.read_table(file, comment='#', header=None)
+    df.columns = columns
+
+    split_attributes = df.attributes.apply(
+        lambda attr_glob: dict(
+            [attr.split(sep="=", maxsplit=1) for attr in attr_glob.split(";")]
+        )
+    )
+
+    miRNA_anno_df = pd.concat(
+        [
+        df,
+        pd.concat(
+            pd.DataFrame(item, index=[idx]) 
+            for idx, item in split_attributes.iteritems()
+        ).fillna('None')
+        ], 
+        axis=1).drop(columns='attributes')
+
+    return miRNA_anno_df
 
 def dict_of_parent_names(miRNA_anno_df):
-    """Extracts primary transcripts and returns a dictionary of ID and Name"""
-    PARENT_DF = miRNA_anno_df[miRNA_anno_df['feature'] == 'miRNA_primary_transcript']
+    """
+    Extracts primary transcripts and returns a dictionary of ID and Name
+    """
+    parent_df = miRNA_anno_df[miRNA_anno_df['feature'] == 'miRNA_primary_transcript']
     try:
-        PARENT_DICT = dict(zip(PARENT_DF['ID'], PARENT_DF['Name']))
+        parent_dict = dict(zip(parent_df['ID'], parent_df['Name']))
     except KeyError:
-        PARENT_DICT = dict(zip(PARENT_DF['ID'], PARENT_DF['gene_name']))
-    return PARENT_DICT
+        parent_dict = dict(zip(parent_df['ID'], parent_df['gene_name']))
+    return parent_dict
 
-
-def make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, PARENT_DICT):
+## DEPRECATED
+def make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, parent_dict):
     """
     Creates dictionary of chromosome to miRNA and it's drosha coordinates.
 
     Args:
         miRNA_anno_df (pandas DataFrame): Dataframe with columns containing the attributes from GFF3 file.
-        PARENT_DICT (dict): Dictionary of ID to Name of only primary transcripts.
+        parent_dict (dict): Dictionary of ID to Name of only primary transcripts.
 
     Returns:
         dict: Dictionary of chromosome as key and value as default dict.
@@ -113,7 +163,7 @@ def make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, PARENT_DICT):
         print('threep original: ', threep)
         print(threep.shape)
     except KeyError:
-        threep = miRNA_anno_df[miRNA_anno_df['gene_name'].str.match('.*3p$')]
+        threep = miRNA_anno_df[miRNA_anno_df['gene_name'].str.match('.*3p$', re.IGNORECASE)]
 
     print('error 3p', threep['Derives_from'].duplicated())
     # Drop any entries where the 3p arm is erroneously marked a
@@ -146,7 +196,7 @@ def make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, PARENT_DICT):
             print('DERIVES_FROM: ', DERIVES_FROM)
             print('coord_dict[DERIVES_FROM]: ', coord_dict[DERIVES_FROM])
 
-    coord_dict = {PARENT_DICT[DERIVES_FROM]: coord_dict[DERIVES_FROM]
+    coord_dict = {parent_dict[DERIVES_FROM]: coord_dict[DERIVES_FROM]
                   for DERIVES_FROM in coord_dict}
     print('coord_dict: ', coord_dict)
 
@@ -161,10 +211,44 @@ def make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, PARENT_DICT):
         DERIVES_FROM = line['Derives_from']
         if CHROM not in chrom_dict.keys():
             chrom_dict[CHROM] = collections.defaultdict(list)
-        chrom_dict[CHROM][PARENT_DICT[DERIVES_FROM]] = (COORD, STRAND)
+        chrom_dict[CHROM][parent_dict[DERIVES_FROM]] = (COORD, STRAND)
     print("Finish make_dictionary_of_miRNA_Drosha_coords: ", time.asctime())
     return chrom_dict
 
+def make_Drosha_coord_dict(miRNA_anno_df):
+    """
+    Args:
+        miRNA_anno_df (pandas DataFrame): produced by read_mirbase_gff3()
+        #parent_dict (dict): Dictionary of ID to Name of only primary transcripts.
+
+    Returns:
+        dict: sorted by chromosome of Drosha cleavage sites of all mature miRNAs.
+        Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
+    """
+    try:
+        threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$')]
+    except KeyError:
+        threep = miRNA_anno_df[miRNA_anno_df['gene_name'].str.match('.*3p$')]
+        
+    threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$', re.IGNORECASE)].copy()
+    
+    # De-duplicate any miRNAs with the same mature name, if they come from different parents
+    for idx, count in threep.groupby('Name').cumcount().iteritems():
+        if count != 0:
+            threep.loc[idx,'Name'] = threep.loc[idx,'Name'].replace('-3p',f'.{count}-3p')
+
+    def Drosha_site(gff_3p_row):
+        COORD = gff_3p_row['start'] if \
+        gff_3p_row['strand'] == '-' \
+        else gff_3p_row['end']
+        
+        return (COORD, gff_3p_row['strand'])
+
+    coord_dict = defaultdict(dict)
+    for i, row in threep.iterrows():
+        coord_dict[row.seqname][row.Name] = Drosha_site(row)
+    
+    return coord_dict
 
 def fix_chr_chromnames(chrom_dict, BAM):
     """
@@ -183,7 +267,7 @@ def fix_chr_chromnames(chrom_dict, BAM):
     print("Starting fix_chr_chromnames: ", time.asctime())
     bamfile = pysam.AlignmentFile(BAM, "rb")
 
-    import re
+    
     pattern = re.compile(r'chr[0-9]+', re.IGNORECASE)
     REF_STARTING_WITH_CHR = list(filter(pattern.match, bamfile.header.references))
 
@@ -198,6 +282,57 @@ def fix_chr_chromnames(chrom_dict, BAM):
     print("Finish fix_chr_chromnames: ", time.asctime())
     return chrom_dict
 
+def fix_chromnames(coord_dict, BAM):
+    """
+    Checks if BAM file is using 'chr' prefix on chromosome names and fixes the dictionary if necessary.
+
+    Args:
+        coord_dict (dict): Dictionary of chromosome as key and value as default dict.
+            Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
+        BAM (bamfile): Bamfile produced by 10x Genomics' CellRanger
+
+    Returns:
+        dict: Updated version of coord_dict with correct 'chr' prefix.
+
+    """
+    chromnames_in_gff3 = list(coord_dict.keys())
+    chromnames_in_bam = pysam.AlignmentFile(BAM, "rb").header.references
+    
+    def get_prefix(list_of_chromosome_names):
+        pattern = re.compile('chr', re.IGNORECASE)
+        dominant_prefix = pd.Series([
+            re.match(pattern,name).group() \
+            for name in list_of_chromosome_names \
+            if re.match(pattern, name)
+        ]
+        ).value_counts().idxmax()
+        return dominant_prefix
+    
+    # Check to see if either the BAM file or the GFF using a 'chr'-style prefix
+    BAM_has_prefix = pd.Series(chromnames_in_bam).str.match(pattern).sum() / len(chromnames_in_bam) > .1
+    BAM_prefix = get_prefix(chromnames_in_bam) if BAM_has_prefix else ''
+    
+    GFF_has_prefix = pd.Series(chromnames_in_gff3).str.match(pattern).sum() / len(chromnames_in_bam) > .1
+    GFF_prefix = get_prefix(chromnames_in_gff3) if GFF_has_prefix else ''
+
+    ## rewrite GFF prefix to match BAM
+    if BAM_has_prefix and not GFF_has_prefix:
+        for c in chromnames_in_gff3:
+            fixed_c = BAM_prefix + str(c)
+            if fixed_c in chromnames_in_bam:
+                print(f'Changing {c} to {fixed_c}')
+                coord_dict[fixed_c] = coord_dict.pop(c)
+                
+    elif GFF_has_prefix and not BAM_has_prefix:
+        for c in chromnames_in_gff3:
+            fixed_c = c.replace(GFF_prefix,BAM_prefix)
+            if fixed_c in chromnames_in_bam:
+                print(f'Changing {c} in GFF reference to {fixed_c}')
+                coord_dict[fixed_c] = coord_dict.pop(c)
+    else:
+        print('BAM and GFF prefixes match. No fixing needed.')
+            
+    return coord_dict
 
 def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
     """
@@ -518,13 +653,13 @@ def main(cmdl):
                 break
 
     print('Reading in gff3 file ...')
-    miRNA_anno_df = attributes_to_columns_from_mirbase_GFF3(args.REFERENCE_FILE)
-    PARENT_DICT = dict_of_parent_names(miRNA_anno_df)
-    chrom_dict = make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, PARENT_DICT)
+    miRNA_anno_df = read_mirbase_gff3(args.REFERENCE_FILE)
+    parent_dict = dict_of_parent_names(miRNA_anno_df)
+    coord_dict = make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, parent_dict)
 
     print('Detecting if BAM user \'chr\' prefix...')
-    chrom_dict = fix_chr_chromnames(chrom_dict, args.BAMFILE)
-    count_table, example_read, results, miRNA_dist_dict = count_miRNAs(args.BAMFILE, chrom_dict, sampleName)
+    coord_dict = fix_chromnames(coord_dict, args.BAMFILE)
+    count_table, example_read, results, miRNA_dist_dict = count_miRNAs(args.BAMFILE, coord_dict, sampleName)
     with open(os.path.join(outdir, "distance_to_DROSHA_dict.json"), "w") as outfile:
         json.dump(miRNA_dist_dict, outfile)
     print('Done with part 1!')

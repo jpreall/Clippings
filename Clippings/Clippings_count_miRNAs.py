@@ -22,64 +22,18 @@ Date: 2021-07
 """
 
 import sys
-import numpy as np
-import pandas as pd
-import os
-import pysam
-import anndata
 import argparse
+import os
 import time
-import scanpy as sc
 import json
 import re
 from collections import defaultdict
 
-## DEPRECATED
-def attributes_to_columns_from_mirbase_GFF3(file):
-    """
-    Given a GFF3 file from mirbase, turn attributes into pandas dataframe columns.
-
-    Args:
-        file (string path): Path to .gff3 formatted file with miRNA annotations downloaded from miRBase.
-
-    Returns:
-        pandas DataFrame: Dataframe with columns containing the attributes from GFF3 file.
-
-    """
-
-    print("Starting attirubtes_to_columns_from_mirbase_GFF3: ", time.asctime())
-
-    columns = ['seqname', 'source', 'feature', 'start',
-               'end', 'score', 'strand', 'frame', 'attributes']
-    attribute_df = pd.read_table(file, comment='#', header=None)
-    attribute_df.columns = columns
-
-    # attribute_df = self.copy()
-    # miRNA_anno_df = attribute_df.loc[:, "seqname":"attributes"]
-    miRNA_anno_df = attribute_df.copy()
-
-    attribute_df["at_dic"] = attribute_df.attributes.apply(
-        lambda attributes: dict(
-            [
-                key_value_pair.split(sep="=", maxsplit=1)
-                for key_value_pair in attributes.split(";")
-            ]
-        )
-    )
-    attribute_df["at_dic_keys"] = attribute_df["at_dic"].apply(
-        lambda at_dic: list(at_dic.keys())
-    )
-    merged_attribute_list = []
-    for key in attribute_df["at_dic_keys"]:
-        merged_attribute_list += key
-
-    nonredundant_list = sorted(list(set(merged_attribute_list)))
-    for atr in nonredundant_list:
-        miRNA_anno_df[atr] = attribute_df["at_dic"].apply(
-            lambda at_dic: at_dic.get(atr)
-        )
-    print("Finish attirubtes_to_columns_from_mirbase_GFF3: ", time.asctime())
-    return miRNA_anno_df
+import numpy as np
+import pandas as pd
+import pysam
+import anndata
+import scanpy as sc
 
 def read_mirbase_gff3(file):
     """
@@ -130,93 +84,6 @@ def read_mirbase_gff3(file):
 
     return miRNA_anno_df
 
-## DEPRECATED
-def dict_of_parent_names(miRNA_anno_df):
-    """
-    Extracts primary transcripts and returns a dictionary of ID and Name
-    """
-    parent_df = miRNA_anno_df[miRNA_anno_df['feature'] == 'miRNA_primary_transcript']
-    try:
-        parent_dict = dict(zip(parent_df['ID'], parent_df['Name']))
-    except KeyError:
-        parent_dict = dict(zip(parent_df['ID'], parent_df['gene_name']))
-    return parent_dict
-
-## DEPRECATED
-def make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, parent_dict):
-    """
-    Creates dictionary of chromosome to miRNA and it's drosha coordinates.
-
-    Args:
-        miRNA_anno_df (pandas DataFrame): Dataframe with columns containing the attributes from GFF3 file.
-        parent_dict (dict): Dictionary of ID to Name of only primary transcripts.
-
-    Returns:
-        dict: Dictionary of chromosome as key and value as default dict.
-        Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
-
-    """
-
-    # Only consider entries with a clearly marked 3p arm:
-    print("Starting make_dictionary_of_miRNA_Drosha_coords: ", time.asctime())
-
-    try:
-        threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$')]
-        print('threep original: ', threep)
-        print(threep.shape)
-    except KeyError:
-        threep = miRNA_anno_df[miRNA_anno_df['gene_name'].str.match('.*3p$', re.IGNORECASE)]
-
-    print('error 3p', threep['Derives_from'].duplicated())
-    # Drop any entries where the 3p arm is erroneously marked a
-    dupthreep = threep[threep['Derives_from'].duplicated()]
-    threep = threep[~threep['Derives_from'].duplicated()]
-    # threep2 = threep[!dupthreep]
-    #print('threep2: ', threep2)
-    #print('threep2 shape:', threep2.shape)
-    print('dupthreep: ', dupthreep)
-    print('dupthreep shape: ', dupthreep.shape)
-    print('threep new: ', threep)
-    print('threep new shape: ', threep.shape)
-
-    print('partial threep: ', threep[298:])
-    coord_dict = {}
-
-    iteration = 0
-    for __, line in threep.iterrows():
-        COORD = line['start'] if line['strand'] == '-' else line['end']
-        CHROM = line['seqname']
-        DROSHA_SITE = CHROM+':' + str(COORD)
-        DERIVES_FROM = line['Derives_from']
-        coord_dict[DERIVES_FROM] = DROSHA_SITE
-        iteration += 1
-        if iteration % 300 == 0:
-            print('iteration #: ', iteration)
-            print('COORD: ', COORD)
-            print('CHROM: ', CHROM)
-            print('DROSHA_SITE: ', DROSHA_SITE)
-            print('DERIVES_FROM: ', DERIVES_FROM)
-            print('coord_dict[DERIVES_FROM]: ', coord_dict[DERIVES_FROM])
-
-    coord_dict = {parent_dict[DERIVES_FROM]: coord_dict[DERIVES_FROM]
-                  for DERIVES_FROM in coord_dict}
-    print('coord_dict: ', coord_dict)
-
-    import collections
-
-    chrom_dict = {}
-    for __, line in threep.iterrows():
-        COORD = line['start'] if line['strand'] == '-' else line['end']
-        CHROM = line['seqname']
-        STRAND = line['strand']
-        DROSHA_SITE = CHROM+':' + str(COORD)
-        DERIVES_FROM = line['Derives_from']
-        if CHROM not in chrom_dict.keys():
-            chrom_dict[CHROM] = collections.defaultdict(list)
-        chrom_dict[CHROM][parent_dict[DERIVES_FROM]] = (COORD, STRAND)
-    print("Finish make_dictionary_of_miRNA_Drosha_coords: ", time.asctime())
-    return chrom_dict
-
 def make_Drosha_coord_dict(miRNA_anno_df):
     """
     Args:
@@ -252,39 +119,6 @@ def make_Drosha_coord_dict(miRNA_anno_df):
     
     return coord_dict
     
-## DEPRECATED
-def fix_chr_chromnames(chrom_dict, BAM):
-    """
-    Checks if BAM file is using 'chr' prefix on chromosome names and fixes the dictionary if necessary.
-
-    Args:
-        chrom_dict (dict): Dictionary of chromosome as key and value as default dict.
-            Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
-        BAM (bamfile): Bamfile produced by 10x Genomics' CellRanger
-
-    Returns:
-        dict: Updated version of chrom_dict with correct 'chr' prefix.
-
-    """
-
-    print("Starting fix_chr_chromnames: ", time.asctime())
-    bamfile = pysam.AlignmentFile(BAM, "rb")
-
-    
-    pattern = re.compile(r'chr[0-9]+', re.IGNORECASE)
-    REF_STARTING_WITH_CHR = list(filter(pattern.match, bamfile.header.references))
-
-    # only fix if < 10% of chromosome names don't start with chr
-    if len(REF_STARTING_WITH_CHR) < 0.1*len(bamfile.header.references):
-        newkeys = [name.replace('chr', '') for name in chrom_dict.keys()]
-        newkeys_pass_filter = [name for name in newkeys if name in bamfile.header.references]
-        print('Changing', len(newkeys_pass_filter),
-              'chromosome names in GTF file to match BAM file...')
-        for newkey in newkeys_pass_filter:
-            chrom_dict[newkey] = chrom_dict.pop('chr' + newkey)
-    print("Finish fix_chr_chromnames: ", time.asctime())
-    return chrom_dict
-
 def fix_chromnames(coord_dict, BAM):
     """
     Checks if BAM file is using 'chr' prefix on chromosome names and fixes the dictionary if necessary.
@@ -658,8 +492,6 @@ def main(cmdl):
 
     print('Reading in gff3 file ...')
     miRNA_anno_df = read_mirbase_gff3(args.REFERENCE_FILE)
-    #parent_dict = dict_of_parent_names(miRNA_anno_df) # DEPRECATED
-    #coord_dict = make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, parent_dict) # DEPRECATED FUNCTION
     coord_dict = make_Drosha_coord_dict(miRNA_anno_df)
 
 

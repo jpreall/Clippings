@@ -32,8 +32,9 @@ import time
 import scanpy as sc
 import json
 import re
+from collections import defaultdict
 
-#DEPRECATED
+## DEPRECATED
 def attributes_to_columns_from_mirbase_GFF3(file):
     """
     Given a GFF3 file from mirbase, turn attributes into pandas dataframe columns.
@@ -129,6 +130,7 @@ def read_mirbase_gff3(file):
 
     return miRNA_anno_df
 
+## DEPRECATED
 def dict_of_parent_names(miRNA_anno_df):
     """
     Extracts primary transcripts and returns a dictionary of ID and Name
@@ -249,7 +251,8 @@ def make_Drosha_coord_dict(miRNA_anno_df):
         coord_dict[row.seqname][row.Name] = Drosha_site(row)
     
     return coord_dict
-
+    
+## DEPRECATED
 def fix_chr_chromnames(chrom_dict, BAM):
     """
     Checks if BAM file is using 'chr' prefix on chromosome names and fixes the dictionary if necessary.
@@ -297,15 +300,16 @@ def fix_chromnames(coord_dict, BAM):
     """
     chromnames_in_gff3 = list(coord_dict.keys())
     chromnames_in_bam = pysam.AlignmentFile(BAM, "rb").header.references
+    pattern = re.compile('chr', re.IGNORECASE)
     
     def get_prefix(list_of_chromosome_names):
-        pattern = re.compile('chr', re.IGNORECASE)
         dominant_prefix = pd.Series([
             re.match(pattern,name).group() \
             for name in list_of_chromosome_names \
             if re.match(pattern, name)
         ]
         ).value_counts().idxmax()
+        
         return dominant_prefix
     
     # Check to see if either the BAM file or the GFF using a 'chr'-style prefix
@@ -654,10 +658,12 @@ def main(cmdl):
 
     print('Reading in gff3 file ...')
     miRNA_anno_df = read_mirbase_gff3(args.REFERENCE_FILE)
-    parent_dict = dict_of_parent_names(miRNA_anno_df)
-    coord_dict = make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, parent_dict)
+    #parent_dict = dict_of_parent_names(miRNA_anno_df) # DEPRECATED
+    #coord_dict = make_dictionary_of_miRNA_Drosha_coords(miRNA_anno_df, parent_dict) # DEPRECATED FUNCTION
+    coord_dict = make_Drosha_coord_dict(miRNA_anno_df)
 
-    print('Detecting if BAM user \'chr\' prefix...')
+
+    print('Detecting if BAM uses \'chr\' prefix...')
     coord_dict = fix_chromnames(coord_dict, args.BAMFILE)
     count_table, example_read, results, miRNA_dist_dict = count_miRNAs(args.BAMFILE, coord_dict, sampleName)
     with open(os.path.join(outdir, "distance_to_DROSHA_dict.json"), "w") as outfile:

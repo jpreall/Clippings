@@ -86,6 +86,9 @@ def read_mirbase_gff3(file):
 
 def make_Drosha_coord_dict(miRNA_anno_df):
     """
+    Clippings will detect any TSO read within a few bases of the predicted Drosha cleavage site
+    This is defined as the 3'-end of the 3p arm of the mature miRNA
+
     Args:
         miRNA_anno_df (pandas DataFrame): produced by read_mirbase_gff3()
         #parent_dict (dict): Dictionary of ID to Name of only primary transcripts.
@@ -94,11 +97,13 @@ def make_Drosha_coord_dict(miRNA_anno_df):
         dict: sorted by chromosome of Drosha cleavage sites of all mature miRNAs.
         Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
     """
+    
     try:
         threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$')]
     except KeyError:
         threep = miRNA_anno_df[miRNA_anno_df['gene_name'].str.match('.*3p$')]
-        
+    
+    # Extract only 3p-arms of miRNAs
     threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$', re.IGNORECASE)].copy()
     
     # De-duplicate any miRNAs with the same mature name, if they come from different parents
@@ -172,6 +177,41 @@ def fix_chromnames(coord_dict, BAM):
             
     return coord_dict
 
+def get_sample_name_from_bam_header(BAMFILE):
+    alignments = pysam.AlignmentFile(BAMFILE, "rb")    
+    try: 
+        sample_name = alignments.header.get('RG')[0].get('SM')
+    except:
+        sample_name = 'UnknownSample'
+    return sample_name
+
+def get_bam_readlength(BAMFILE):
+    alignments = pysam.AlignmentFile(BAMFILE, 'rb')
+    rlens = []
+    for n, read in enumerate(alignments.fetch()):
+        rlens += [len(read.get_forward_sequence())]
+        if n > 10000:
+            break
+    return pd.Series(rlens).value_counts().idxmax()
+
+def get_bam_features(BAMFILE):
+    # Get Sample name from Cellranger-formatted BAM:
+    alignments = pysam.AlignmentFile(BAMFILE, "rb")
+    try: 
+        sample_name = alignments.header.get('RG')[0].get('SM')
+    except:
+        sample_name = 'UnknownSample'
+    
+    # Get read length of run by skimming first 10,000 lines:
+    rlens = []
+    for n, read in enumerate(alignments.fetch()):
+        rlens += [len(read.get_forward_sequence())]
+        if n > 10000:
+            break
+    read_length = pd.Series(rlens).value_counts().idxmax()
+    
+    return sample_name, read_length
+    
 def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
     """
     Reads bamfile and stores read information into a pandas DataFrame and counts number
@@ -193,28 +233,176 @@ def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
 
     """
     print("Starting count_miRNAs: ", time.asctime())
-    import collections
     example_read = None
 
     allmi = {}
     for c in chrom_dict.keys():
-        #if c == 'chr17': #td
-        #    print('this is: ', c) #td
         for m in chrom_dict[c].keys():
-        #    if m =='hsa-mir-21': #td
-        #        print('this is: ', m) #td
             allmi[m] = c
 
     print(BAM)
     alignments = pysam.AlignmentFile(BAM, "rb")
     MI_READS = pysam.AlignmentFile('tmp_miRNA_matching.bam', "wb", template=alignments)
 
-    count_table = collections.defaultdict(set)
-    detailed_results = collections.defaultdict(list)
+    count_table = defaultdict(set)
+    detailed_results = defaultdict(list)
+    miRNA_dist_dict = defaultdict(dict)
+
+    tally = 0
+    NO_UB = 0
+    bam_read_length = 56
+
+    Drosha_tolerance = 4
+    dist_DROSHA_dict = dict.fromkeys(range(-Drosha_tolerance, Drosha_tolerance+1), 0)
+
+    for mirna, chrom in allmi.items():
+        chroms = [chrom]
+        mirnas = [mirna]
+       
+        miRNA_dist_dict[mirna] = dist_DROSHA_dict.copy()
+
+        mirna_strand = chrom_dict[chrom][mirna][1]
+        DROSHA_SITE = chrom_dict[chrom][mirna][0]
+
+        if mirna_strand == '-':
+            start = DROSHA_SITE - bam_read_length - flanks
+            end = DROSHA_SITE + flanks
+
+        elif mirna_strand == '+':
+            start = DROSHA_SITE - flanks
+            end = DROSHA_SITE + bam_read_length + flanks
+
+        for read in alignments.fetch(chrom, start, end):
+            tally += 1
+            if tally % 1e5 == 0:
+                print('Lines read:', f'{tally:,}')
+                # print('count_table: ', count_table)
+
+            if read.has_tag("ts:i"):
+                if read.has_tag('UB') & read.has_tag('CB'):
+                    if read.is_reverse:  # basically '-' strand
+                        #distance = read.reference_end - DROSHA_SITE
+                        distance = DROSHA_SITE - read.reference_end
+                    else:  # basically '+' strand
+                        distance = read.reference_start - DROSHA_SITE
+                    # distance to DROSHA should be no less than 'X'
+                    if abs(distance) < 5:
+                        initial_len = len(count_table[mirna])
+                        count_table[mirna].add(read.get_tag("UB"))
+                        # counting the UB's distance to DROSHA if condition met
+                        if len(count_table[mirna]) != initial_len:
+                            miRNA_dist_dict[mirna][distance] += 1
+
+                        MI_READS.write(read)
+
+                        if read.cigarstring != '56M':
+                            example_read = read
+
+                        # write detailed_results dictionary
+                        if mirna not in detailed_results.keys():
+                            detailed_results[mirna] = defaultdict(list)
+
+                        read_name = read.query_name
+                        read_details = read.to_dict()
+                        read_details.pop('name')
+                        read_details.pop('tags')
+
+                        detailed_results[mirna][read_name] = read_details
+
+                        for tag in read.tags:
+                            detailed_results[mirna][read_name][tag[0]] = tag[1]
+
+                        detailed_results[mirna][read_name]['CB_UB'] = read.get_tag(
+                            'CB') + '_' + read.get_tag('UB')
+                        detailed_results[mirna][read_name]['Dist_to_DROSHA'] = distance
+
+                else:
+                    NO_UB += 1
+
+    MI_READS.close()
+    alignments.close()
+
+    # Convert detailed results to a pandas dataframe
+    print("Starting pandas dataframe conversion: ", time.asctime())
+
+    results = pd.DataFrame()
+    print(type(detailed_results))
+    for key, item in detailed_results.items():
+        tmpdf = pd.DataFrame.from_dict(item, orient='index')
+        tmpdf['miRNA'] = key
+        results = pd.concat([tmpdf,results])
+
+    #for m in detailed_results.keys():
+        #tmpdf = pd.DataFrame.from_dict(detailed_results[m], orient='index')
+        #tmpdf['miRNA'] = m
+        #results = pd.concat([tmpdf, results])
+    print("Finish pandas dataframe conversion: ", time.asctime())
+
+    print("Starting .bai index file writing: ", time.asctime())
+    # Write the .bai index file
+    print("Sorting output...")
+    OUTBAM_FILENAME = sampleName + '_sorted_miRNA_reads.bam'
+    pysam.sort("-o", OUTBAM_FILENAME, "tmp_miRNA_matching.bam")
+    os.remove("tmp_miRNA_matching.bam")
+    if os.path.exists('tmp_miRNA_matching.bam'):
+        os.remove("tmp_miRNA_matching.bam")
+        print('Cleaning up temp files...')
+    print('Generating BAM index...', time.asctime())
+    print('File size = ', np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2), 'MB')
+    pysam.index(OUTBAM_FILENAME)
+    MI_READS.close()
+    print("Finish .bai index file writing: ", time.asctime())
+
+    print('Counting UMIs...', time.asctime())
+    for mir in count_table.keys():
+        count_table[mir] = len(count_table[mir])
+
+    print('# candidate reads with no UB tag:', NO_UB)
+    count_table = pd.DataFrame(count_table, index=['count']).T
+
+    print("Finish count_miRNAs: ", time.asctime())
+    return count_table, example_read, results, miRNA_dist_dict
+
+
+
+def count_miRNAs_OLD(BAM, chrom_dict, sampleName, flanks=0):
+    """
+    Reads bamfile and stores read information into a pandas DataFrame and counts number
+    of each miRNA. Also outputs miRNA labelled reads as a bam file with index.
+
+    Args:
+        BAM (bamfile): Bamfile produced by 10x Genomics' CellRanger
+        chrom_dict (dict): Dictionary of chromosome as key and value as default dict.
+            Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
+        flanks (int): Default 0.
+
+    Returns:
+        (tuple): tuple containing:
+
+            count_table (pandas DataFrame): Dataframe of counts of each miRNA.
+            example_read (pysam AlignmentSegment): Read as AlignmentSegment.
+            results (pandas DataFrame): Dataframe of all reads and info from pysam.
+            miRNA_dist_dict (dict): Dictionary with distance to Drosha counts for each miRNA.
+
+    """
+    print("Starting count_miRNAs: ", time.asctime())
+    example_read = None
+
+    allmi = {}
+    for c in chrom_dict.keys():
+        for m in chrom_dict[c].keys():
+            allmi[m] = c
+
+    print(BAM)
+    alignments = pysam.AlignmentFile(BAM, "rb")
+    MI_READS = pysam.AlignmentFile('tmp_miRNA_matching.bam', "wb", template=alignments)
+
+    count_table = defaultdict(set)
+    detailed_results = defaultdict(list)
     tally = 0
     NO_UB = 0
 
-    miRNA_dist_dict = collections.defaultdict(dict)
+    miRNA_dist_dict = defaultdict(dict)
 
     for i in range(len(allmi.keys())):
         m = list(allmi.keys())[i]
@@ -271,7 +459,7 @@ def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
 
                                 # write detailed_results dictionary
                                 if mirna not in detailed_results.keys():
-                                    detailed_results[mirna] = collections.defaultdict(list)
+                                    detailed_results[mirna] = defaultdict(list)
 
                                 read_name = read.query_name
                                 read_details = read.to_dict()
@@ -297,10 +485,16 @@ def count_miRNAs(BAM, chrom_dict, sampleName, flanks=0):
     print("Starting pandas dataframe conversion: ", time.asctime())
 
     results = pd.DataFrame()
-    for m in detailed_results.keys():
-        tmpdf = pd.DataFrame.from_dict(detailed_results[m], orient='index')
-        tmpdf['miRNA'] = m
-        results = pd.concat([tmpdf, results])
+    print(type(detailed_results))
+    for key, item in detailed_results.items():
+        tmpdf = pd.DataFrame.from_dict(item, orient='index')
+        tmpdf['miRNA'] = key
+        results = pd.concat([tmpdf,results])
+
+    #for m in detailed_results.keys():
+        #tmpdf = pd.DataFrame.from_dict(detailed_results[m], orient='index')
+        #tmpdf['miRNA'] = m
+        #results = pd.concat([tmpdf, results])
     print("Finish pandas dataframe conversion: ", time.asctime())
 
     print("Starting .bai index file writing: ", time.asctime())
@@ -478,17 +672,9 @@ def main(cmdl):
         # Commented out above because if used as script (as it is now), there is no user input
         print('Output directory already exists')
     os.mkdir(outdir)
-
-    alignments = pysam.AlignmentFile(args.BAMFILE, "rb")
-    sampleNameFinder = 0
-    for read in alignments.fetch(until_eof=True):
-        if read.has_tag("RG"):
-            sampleName = read.get_tag("RG").split(":")[0]
-            break
-        else:
-            sampleNameFinder += 1
-            if sampleNameFinder == 100:
-                break
+    
+    sampleName = get_sample_name_from_bam_header(args.BAMFILE)
+    print(f'Detected sample name as: {sampleName}')
 
     print('Reading in gff3 file ...')
     miRNA_anno_df = read_mirbase_gff3(args.REFERENCE_FILE)
@@ -519,8 +705,8 @@ def main(cmdl):
     raw_with_miRNAs.write(outfile)
 
     # testing purposes
-    foo = sc.read(outfile)
-    print('miRNA table dimensions: ', foo)
+    #foo = sc.read(outfile)
+    #print('miRNA table dimensions: ', foo)
 
     if args.results_table is True:
         print('Writing miRNAs_result_table')

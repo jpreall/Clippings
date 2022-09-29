@@ -302,7 +302,7 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
             print('Cleaning up temp files...')
             
         FILESIZE = np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2)
-        print(f'File size = {FILESIZE} MB')
+        print(f'miRNA BAM file size = {FILESIZE} MB')
 
         print('Generating BAM index...', time.asctime())
         pysam.index(OUTBAM_FILENAME)
@@ -442,10 +442,10 @@ def merge_miRNA_with_GEX(
     count_df: pd.DataFrame ,
     mi_name_dict: dict):
     
-    print(f'Reading GEX matrix from {matrix_folder}...')
+    print(f'Reading GEX matrix from {matrix_folder}...', time.asctime())
     MTX, OBS, VAR = read_10x_mtx(matrix_folder)
 
-    print(f'Merging matrices...')
+    print(f'Merging matrices...', time.asctime())
     # Throw away any barcodes with miRNAs if they are not in GEX matrix
     miRNA_barcodes = set(count_df.columns)
     keep_cells = [name for name in OBS.index if name in miRNA_barcodes]
@@ -482,9 +482,10 @@ def merge_miRNA_with_GEX(
     NEWVAR.to_csv(
         os.path.join(MTX_outdir,'features.tsv.gz'),
         sep = '\t',
-        compression='gzip')
+        compression='gzip',
+        header=None)
 
-    print('Writing MTX..')
+    print('Writing MTX...', time.asctime())
     # Write barcodes.tsv.gz
     OBS.to_csv(
         os.path.join(MTX_outdir,'barcodes.tsv.gz'),
@@ -492,7 +493,7 @@ def merge_miRNA_with_GEX(
         compression='gzip',
         header=None)
 
-    print('gzipping...')
+    print('gzipping...', time.asctime())
     # Write MEX-formatted MTX file and gzip it
     MTXOUT = os.path.join(MTX_outdir,'matrix.mtx')
     io.mmwrite(
@@ -570,7 +571,7 @@ def main(cmdl):
     )
     # Write table of TSO distances to Drosha site, for future filtering of bogus miRNAs
     Drosha_dist_table.to_csv(
-        os.path.join(outdir,'TSO_distances_to_Drosha.csv'),
+        os.path.join(outdir,'TSO_distances_to_Drosha.csv.gz'),
         index=True,
         compression='gzip')
 

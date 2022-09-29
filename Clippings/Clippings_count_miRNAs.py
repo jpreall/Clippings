@@ -1,40 +1,38 @@
-#!/usr/bin/env python
-# $ -cwd
-# $ -v PATH,LD_LIBRARY_PATH
 """
 Clippings_count_miRNAs.py
 
 Count mapped reads harboring TSO sub-subsequence. Only works with CellRanger 4.0+ outputs.
 
-
 Inputs:
     BAMFILE = BAM file produced by Cellranger v4+ with TSO reads tagged with ts:i
     REFERENCE_FILE = gff3 file with miRNA coordinates downloaded from miRBase
-    genome
-    outdir
-    raw = Raw matrix to tack miRNAs onto the variable columns
+    outdir = path to output folder
+    matrix_folder = Cellranger Count matrix folder containing gene expression data in .mtx format to merge with miRNAs
+    write_bam_output (default: True) = Write candidate TSO-containing miRNA reads to BAM output file
+    
     # TODO: Add ability to use miRNA GTF/coordinate files produced elsewhere
     # TODO: Change behavior of miRNA GFF3 references: Instead, specify genome version and pull from a pre-packaged file
     Usage: Clippings_count_miRNA.py BAMFILE REFERENCE_FILE --genome --outdir --raw
 
 Author: jpreall@cshl.edu
-Date: 2021-07
+Date: 2022-09
 """
 
 import sys
 import argparse
 import os
 import time
-import json
 import re
+import gzip
 from collections import defaultdict
 from typing import Union
 
 import numpy as np
 import pandas as pd
 import pysam
-import anndata
-import scanpy as sc
+import scipy
+from scipy import io
+
 
 def read_mirbase_gff3(file):
     """
@@ -87,24 +85,30 @@ def read_mirbase_gff3(file):
 
 def make_Drosha_coord_dict(miRNA_anno_df):
     """
-    Clippings will detect any TSO read within a few bases of the predicted Drosha cleavage site
-    This is defined as the 3'-end of the 3p arm of the mature miRNA
-
+    For the moment, Clippings will only look for TSO-containing reads aligning to
+    the 3p-arm of annotated miRNAs. While reads piling up at the 5p-arm can sometimes
+    be seen, they are more rare.
+    
+    Some annotated miRNAs do not have clear '3p' or '5p' arms annotated. These are
+    ignored for now, but future versions will address these.
+    
+    
     Args:
         miRNA_anno_df (pandas DataFrame): produced by read_mirbase_gff3()
         #parent_dict (dict): Dictionary of ID to Name of only primary transcripts.
 
     Returns:
-        dict: sorted by chromosome of Drosha cleavage sites of all mature miRNAs.
-        Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
+        coord_dict (dict): sorted by chromosome of Drosha cleavage sites of all mature miRNAs.
+        Default dict has miRNA name and Drosha coordinate with '+' or '-' strand.
+        
+        mi_name_dict (dict): dictionary mapping miRNA gene name to "MIMAT"-style accession
     """
     
     try:
         threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$')]
     except KeyError:
         threep = miRNA_anno_df[miRNA_anno_df['gene_name'].str.match('.*3p$')]
-    
-    # Extract only 3p-arms of miRNAs
+        
     threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$', re.IGNORECASE)].copy()
     
     # De-duplicate any miRNAs with the same mature name, if they come from different parents
@@ -117,13 +121,15 @@ def make_Drosha_coord_dict(miRNA_anno_df):
         gff_3p_row['strand'] == '-' \
         else gff_3p_row['end']
         
-        return (COORD, gff_3p_row['strand'])
+        return (COORD, gff_3p_row['strand'], gff_3p_row['ID'])
 
     coord_dict = defaultdict(dict)
     for i, row in threep.iterrows():
         coord_dict[row.seqname][row.Name] = Drosha_site(row)
     
-    return coord_dict
+    mi_name_dict = dict(zip(threep['Name'],threep['ID'])) 
+    
+    return coord_dict, mi_name_dict
     
 def fix_chromnames(coord_dict, BAM):
     """
@@ -196,7 +202,6 @@ def get_bam_readlength(BAMFILE):
     alignments.close()
     return pd.Series(rlens).value_counts().idxmax()
     
-
 def get_bam_features(BAMFILE):
     # Get Sample name from Cellranger-formatted BAM:
     alignments = pysam.AlignmentFile(BAMFILE, "rb")
@@ -214,174 +219,15 @@ def get_bam_features(BAMFILE):
     bam_read_length = pd.Series(rlens).value_counts().idxmax()
     
     return sample_name, bam_read_length
-    
-def count_miRNAs(BAM, coord_dict, sampleName, bam_read_length, write_miRNA_bam=False):
-    """
-    Reads bamfile and stores read information into a pandas DataFrame and counts number
-    of each miRNA. Also outputs miRNA labelled reads as a bam file with index.
 
-    Args:
-        BAM (bamfile): Bamfile produced by 10x Genomics' CellRanger
-        
-        coord_dict (dict): Dictionary of miRNA cropping loci sorted by chromosome. 
-            Produced by make_Drosha_coord_dict()
-
-    Returns:
-        (tuple): tuple containing:
-
-            count_table (pandas DataFrame): Dataframe of counts of each miRNA.
-            example_read (pysam AlignmentSegment): Read as AlignmentSegment.
-            results (pandas DataFrame): Dataframe of all reads and info from pysam.
-            miRNA_dist_dict (dict): Dictionary with distance to Drosha counts for each miRNA.
-
-    """
-    print("Starting count_miRNAs: ", time.asctime())
-
-    allmi = {}
-    for c in coord_dict.keys():
-        for m in coord_dict[c].keys():
-            allmi[m] = c
-
-    print(BAM)
-    alignments = pysam.AlignmentFile(BAM, "rb")
-    
-    if write_miRNA_bam:
-        MI_READS = pysam.AlignmentFile('tmp_miRNA_matching.bam', "wb", template=alignments)
-
-    count_table = defaultdict(set)
-    detailed_results = defaultdict(list)
-    miRNA_dist_dict = defaultdict(dict)
-    DEBUG_read_details = defaultdict(dict)
-    
-    NO_UB = 0
-
-    Drosha_tolerance = 4
-    dist_DROSHA_dict = dict.fromkeys(range(-Drosha_tolerance, Drosha_tolerance+1), 0)
-
-    for mirna, chrom in allmi.items():
-       
-        miRNA_dist_dict[mirna] = dist_DROSHA_dict.copy()
-
-        mirna_strand = coord_dict[chrom][mirna][1]
-        DROSHA_SITE = coord_dict[chrom][mirna][0]
-
-        if mirna_strand == '-':
-            start = DROSHA_SITE - bam_read_length
-            end = DROSHA_SITE 
-
-        elif mirna_strand == '+':
-            start = DROSHA_SITE
-            end = DROSHA_SITE + bam_read_length
-            
-        
-        # Inspect all reads in the vicinity of the expected Drosha cropping site
-        for tally, read in enumerate(alignments.fetch(chrom, start, end)):
-            tally += 1
-            if tally % 1e5 == 0:
-                print('Lines read:', f'{tally:,}')
-
-            if read.has_tag("ts:i"):
-                if read.has_tag('UB') & read.has_tag('CB'):
-                    
-                    # Compute distance from TSO incorporation site to predicted Drosha cropping site
-                    if read.is_reverse:  # '-' strand
-                        #distance = read.reference_end - DROSHA_SITE
-                        distance = DROSHA_SITE - read.reference_end
-                    else:  # '+' strand
-                        distance = read.reference_start - DROSHA_SITE
-                        
-                    # Distance to cropping site should be no less than 'Drosha_tolerance'
-                    if abs(distance) <= Drosha_tolerance:
-                        UB = read.get_tag("UB")
-                        
-                        # keep a running tally of distances to cropping site per unique miRNA count
-                        if UB not in count_table[mirna]:
-                            miRNA_dist_dict[mirna][distance] += 1
-                        
-                        # Add this UMI to the the set
-                        count_table[mirna].add(UB)
-                        
-                        # Write matching reads to BAM output
-                        if write_miRNA_bam:
-                            MI_READS.write(read)
-
-                        # write detailed_results dictionary
-                        if mirna not in detailed_results.keys():
-                            detailed_results[mirna] = defaultdict(list)
-
-                        read_name = read.query_name
-                        DEBUG_read_details[read_name] = read.to_dict()
-                        read_details = read.to_dict()
-                        read_details.pop('name')
-                        read_details.pop('tags')
-
-                        detailed_results[mirna][read_name] = read_details
-
-                        for tag in read.tags:
-                            detailed_results[mirna][read_name][tag[0]] = tag[1]
-
-                        detailed_results[mirna][read_name]['CB_UB'] = read.get_tag(
-                            'CB') + '_' + read.get_tag('UB')
-                        detailed_results[mirna][read_name]['Dist_to_DROSHA'] = distance
-
-                else:
-                    NO_UB += 1
-
-    if write_miRNA_bam:
-        MI_READS.close()
-        
-    alignments.close()
-
-    # Convert detailed results to a pandas dataframe
-    print("Starting pandas dataframe conversion: ", time.asctime())
-
-    results = pd.DataFrame()
-    for key, item in detailed_results.items():
-        tmpdf = pd.DataFrame.from_dict(item, orient='index')
-        tmpdf['miRNA'] = key
-        results = pd.concat([tmpdf,results])
-
-    print("Finish pandas dataframe conversion: ", time.asctime())
-    
-    if write_miRNA_bam:
-        print("Finalizing BAM output: ", time.asctime())
-        # Write the .bai index file
-        
-        print("Sorting output...")
-        
-        #Note: This file should already be sorted if coming from Cellranger.
-        OUTBAM_FILENAME = sampleName + '_sorted_miRNA_reads.bam'
-        pysam.sort("-o", OUTBAM_FILENAME, "tmp_miRNA_matching.bam")
-
-        if os.path.exists('tmp_miRNA_matching.bam'):
-            os.remove("tmp_miRNA_matching.bam")
-            print('Cleaning up temp files...')
-            
-        FILESIZE = np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2)
-        print(f'File size = {FILESIZE} MB')
-
-        print('Generating BAM index...', time.asctime())
-        pysam.index(OUTBAM_FILENAME)
-        print("Finished sorting and indexing BAM output ", time.asctime())
-
-    print('Counting total UMIs per miRNA...', time.asctime())
-    #counts_per_miRNA = pd.Series({key:len(count_table[key]) for key in count_table.keys()})
-    counts_per_miRNA = pd.DataFrame(
-        {key:len(UMIlist) for key, UMIlist in count_table.items()},
-        index=['counts']).T
-
-    print('# candidate reads with no UB tag:', NO_UB)
-
-    print("Finished count_miRNAs: ", time.asctime())
-    #return count_table, results, miRNA_dist_dict, detailed_results, read, counts_per_miRNA, DEBUG_read_details
-    return results, miRNA_dist_dict, counts_per_miRNA
-
-def count_miRNAs_simple(BAM: Union[str, bytes, os.PathLike], 
+def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
+                        outdir: Union[str, bytes, os.PathLike],
                         coord_dict: dict, 
                         sample_name: str, 
                         bam_read_length: int,
                         Drosha_tolerance: int=4,
-                        write_miRNA_bam: bool=False):
+                        write_miRNA_bam: bool=False,
+                        ):
     """
     Reads bamfile and stores read information into a pandas DataFrame and counts number
     of each miRNA. Also outputs miRNA labelled reads as a bam file with index.
@@ -432,7 +278,7 @@ def count_miRNAs_simple(BAM: Union[str, bytes, os.PathLike],
         read_details.pop('name')
 
         detailed_results[read_name] = read_details
-        detailed_results[read_name]['miRNA'] = mirna
+        detailed_results[read_name]['miRNA'] = miRNA
         detailed_results[read_name]['CB_UB'] = read.get_tag(
             'CB') + '_' + read.get_tag('UB')
         detailed_results[read_name]['Dist_to_DROSHA'] = distance
@@ -441,15 +287,14 @@ def count_miRNAs_simple(BAM: Union[str, bytes, os.PathLike],
             detailed_results[read_name][tag[0]] = tag[1]
             
     def finalize_miRNA_bam(
-        bamfile: Union[str, bytes, os.PathLike] = 'tmp_miRNA_matching.bam',
-        sample_name: str = sample_name):
+        OUTBAM_FILENAME,
+        ):
         """
         Sorts, indexes, and cleans up temporary miRNA BAM file.
         """
         print("Finalizing BAM output: ", time.asctime())    
         print("Sorting output...")
         
-        OUTBAM_FILENAME = sample_name + '_sorted_miRNA_reads.bam'
         pysam.sort("-o", OUTBAM_FILENAME, "tmp_miRNA_matching.bam")
 
         if os.path.exists('tmp_miRNA_matching.bam'):
@@ -469,7 +314,6 @@ def count_miRNAs_simple(BAM: Union[str, bytes, os.PathLike],
     
     # Setup output variables
     detailed_results = defaultdict(list)
-    dist_DROSHA_dict = dict.fromkeys(range(-Drosha_tolerance, Drosha_tolerance+1), 0)
     NO_UB = 0
     
     # Create dict of all miRNA names and their respective chromosomes to iterate over
@@ -532,9 +376,11 @@ def count_miRNAs_simple(BAM: Union[str, bytes, os.PathLike],
     
     if write_miRNA_bam:
         MI_READS.close()
-        finalize_miRNA_bam()
+        OUTBAM_FILENAME = os.path.join(outdir,sample_name + '_sorted_miRNA_reads.bam')
+        finalize_miRNA_bam(OUTBAM_FILENAME)
         
-    # Cast the filtered reads as a Pandas dataframe
+    
+    ## OUTPUT 1: Cast the filtered reads as a Pandas dataframe
     detailed_results_df = pd.DataFrame.from_dict(detailed_results, orient='index')
 
     # Reduce this dataframe to only unique miRNA/UMI:barcode combos
@@ -542,117 +388,135 @@ def count_miRNAs_simple(BAM: Union[str, bytes, os.PathLike],
     dedup_filt_df = detailed_results_df.drop_duplicates(subset=['CB_UB','miRNA']) 
     dedup_filt_df = dedup_filt_df[np.abs(dedup_filt_df['Dist_to_DROSHA']) <= Drosha_tolerance]
     
-    #Generate a simple cell x gene matrix:
+    ## OUTPUT 2: Generate a simple cell x gene matrix:
     count_df = dedup_filt_df.loc[:,['miRNA','CB_UB','CB']].pivot_table(
         index='miRNA', 
         columns='CB', 
         values='CB_UB', 
         aggfunc=lambda x: len(set(x))
     ).fillna(0).astype('int')
+    
+    ## OUTPUT 3: Make a table of the distance to Drosha cut site for all miRNA fragments
+    ## This could be helpful in deciding which 'miRNAs' are bona-fide and which 
+    ## are garbage annotations polluting miRBase, of which there are many. 
+    Drosha_dist_table = dedup_filt_df.pivot_table(
+        index='miRNA',
+        columns=['Dist_to_DROSHA'],
+        values='UB',
+        aggfunc=lambda x: len(set(x))
+    ).fillna(0).astype('int')
 
-    # Make a per-miRNA tally
+    # Extend dataframe to +/- Drosha tolerance for visual effect
+    for n in list(range(-Drosha_tolerance,Drosha_tolerance+1)):
+        if n not in Drosha_dist_table.columns:
+            Drosha_dist_table[n] = 0
+
+    ## OUTPUT 4: Make a per-miRNA tally
     counts_per_miRNA = dedup_filt_df.groupby('miRNA').agg({'UB':len}).sort_values(by='UB', ascending=False)
 
     print("Finished count_miRNAs: ", time.asctime())
-    return detailed_results_df, count_df, counts_per_miRNA
+    return detailed_results_df, count_df, Drosha_dist_table, counts_per_miRNA
 
-##DEPRECATED??
-def dist_toDrosha_table(path_to_json, min_counts=10, scaleby='total'):
+def read_10x_mtx(matrix_path: Union[str, bytes, os.PathLike]):
     """
-    Creates distance to drosha count table for miRNAs scaled by max value or total counts for given a json file,
-    which is then used downstream to label bogus miRNAs.
-
-    Args:
-        path_to_json (str): Path to json file with dictionary of distance to Drosha counts for each miRNA.
-        min_counts (int): Min counts to consider for labeling bogus miRNAs. Must be at least 5 to calculate pileups.
-        scaleby (str): Method to scale counts to 0-1.
-
-    Returns:
-        droshaDist_sliced_norm (Pandas Dataframe): Dataframe with scaled counts of distance to drosha for each miRNA.
-        To be used for labeling bogus miRNAs.
-
+    Reads a Cellranger-formatted matrix path for concatentation with miRNA data
+    Will accept filtered_feature_bc_matrix/ or raw_feature_bc_matrix/ folders.
     """
-    if min_counts < 5:
-        raise ValueError('min_counts must be at least 5 in order to label bogus miRNAs')
-    def data_loader(path_to_json):
-        f = open(path_to_json)
-        # returns JSON object as
-        # a dictionary
-        data = json.load(f)
-        f.close()
-        droshaDist = pd.DataFrame(data).T
-        print('top 10 miRNA counts', droshaDist.sum(1).sort_values(ascending=False).head(10))
-        return droshaDist
+    VALID_10X_FILES = ['features.tsv.gz', 'barcodes.tsv.gz', 'matrix.mtx.gz']
+    assert os.listdir(matrix_path) == VALID_10X_FILES, \
+    f'Warning, specified Cellranger matrix folder must contain ONLY the files: {VALID_10X_FILES}'
+    
+    MTX = io.mmread(os.path.join(matrix_path,'matrix.mtx.gz'))
+    OBS = pd.read_table(os.path.join(matrix_path,'barcodes.tsv.gz'), header=None, index_col=0)
+    OBS.index.rename('Barcode', inplace=True)
+    
+    VAR = pd.read_table(os.path.join(matrix_path,'features.tsv.gz'), header=None, index_col=0)
+    VAR.columns = ['gene_name','feature_types']
+    VAR.index.rename('gene_ids', inplace=True)
+    
+    return MTX, OBS, VAR
 
-    droshaDist = data_loader(path_to_json)
-    droshaDist_sliced = droshaDist[droshaDist.sum(1) >= min_counts].copy()
-    droshaDist_sliced.loc[:, 'rowSum'] = droshaDist_sliced.sum(1)
-    droshaDist_sliced = droshaDist_sliced.sort_values(by='rowSum', ascending=False)
-    del droshaDist_sliced['rowSum']
+def merge_miRNA_with_GEX(
+    matrix_folder: Union[str, bytes, os.PathLike],
+    outdir: Union[str, bytes, os.PathLike],
+    count_df: pd.DataFrame ,
+    mi_name_dict: dict):
+    
+    print(f'Reading GEX matrix from {matrix_folder}...')
+    MTX, OBS, VAR = read_10x_mtx(matrix_folder)
 
-    if scaleby == 'max':
-        droshaDist_sliced_norm = droshaDist_sliced.div(droshaDist_sliced.max(axis=1), axis=0)
-    elif scaleby == 'total':
-        droshaDist_sliced_norm = droshaDist_sliced.div(droshaDist_sliced.sum(axis=1), axis=0)
-    elif scaleby == 'none':
-        droshaDist_sliced_norm = droshaDist
-    else:
-        raise ValueError('scaleby must be one of the following: max, total, none')
-    # fill in any na values
-    droshaDist_sliced_norm = droshaDist_sliced_norm.fillna(0)
+    print(f'Merging matrices...')
+    # Throw away any barcodes with miRNAs if they are not in GEX matrix
+    miRNA_barcodes = set(count_df.columns)
+    keep_cells = [name for name in OBS.index if name in miRNA_barcodes]
+    keep_cells_indices = np.searchsorted(OBS.index, keep_cells)
+    filtered_count_df = count_df.loc[:,keep_cells]
+    
+    # Initialize empty counts matrix to concatenate with GEX
+    NEWDATA = np.zeros([len(OBS), len(count_df)], dtype='int')
+    
+    # Fill with miRNA counts and sparsify
+    for n, row in enumerate(filtered_count_df.iterrows()):
+        NEWDATA[keep_cells_indices,n] = row[1]
+    sparse_mi_mtx = scipy.sparse.csr_matrix(NEWDATA.T)
 
-    #sns.clustermap(droshaDist_sliced_norm, col_cluster=False, row_cluster=False, yticklabels=True)
-    return droshaDist_sliced_norm
+    # Stack with GEX matrix
+    NEWMTX = scipy.sparse.vstack([MTX,sparse_mi_mtx])
 
+    # create feature name tsv table
+    MIRVAR = pd.DataFrame(index = [mi_name_dict[mi] for mi in count_df.index])
+    MIRVAR['gene_name'] = [name + '-DroshaProd' for name in count_df.index]
+    MIRVAR['feature_types'] = 'Gene Expression'
+    NEWVAR = pd.concat([VAR,MIRVAR])
+    
+    # Create outdir, if necessary
+    if not os.path.exists(outdir):
+        os.mkdir(outdir)
 
+    MTX_outdir = os.path.join(outdir,'feature_bc_matrix_with_miRNAs')
 
-def miRNA_to_featureMatrix(count_miRNAs_result, raw_feature_bc_matrix):
-    """
-    Add miRNAs to raw feature bc matrix.
+    if not os.path.exists(MTX_outdir):
+        os.mkdir(MTX_outdir)
+        
+    # Write features.tsv.gz
+    NEWVAR.to_csv(
+        os.path.join(MTX_outdir,'features.tsv.gz'),
+        sep = '\t',
+        compression='gzip')
 
-    Args:
-        count_miRNAs_result (pandas df): Dataframe output from count_miRNAs() containing
-            all the information from pysam read alignments.
-        raw_feature_bc_matrix (anndata): Raw matrix produced by 10x Genomics' CellRanger.
+    print('Writing MTX..')
+    # Write barcodes.tsv.gz
+    OBS.to_csv(
+        os.path.join(MTX_outdir,'barcodes.tsv.gz'),
+        sep = '\t',
+        compression='gzip',
+        header=None)
 
-    Returns:
-        AnnData: Raw matrix with miRNAs tacked onto the variable columns (gene names)
+    print('gzipping...')
+    # Write MEX-formatted MTX file and gzip it
+    MTXOUT = os.path.join(MTX_outdir,'matrix.mtx')
+    io.mmwrite(
+        MTXOUT,
+        NEWMTX)
 
-    """
-    # # https://stackoverflow.com/questions/22412033/python-pandas-pivot-table-count-frequency-in-one-column
-    # remove duplicated UBs from the result table that has all the queries
-    count_miRNAs_result = count_miRNAs_result.drop_duplicates(subset=['UB'])
-    barcode_miRNA_df = count_miRNAs_result[['CB', 'miRNA']].pivot_table(
-        index='CB', columns='miRNA', aggfunc=len, fill_value=0)
-    print('miRNAs by UMI count')
-    print(barcode_miRNA_df.sum(0).sort_values(ascending=False).head(10))
-
-    # cast barcode_miRNA_df as anndata and match up the .var attributes
-    barcode_miRNA_adata = sc.AnnData(barcode_miRNA_df)
-    barcode_miRNA_adata.var['gene_ids'] = barcode_miRNA_adata.var_names
-    barcode_miRNA_adata.var['feature_types'] = raw_feature_bc_matrix.var['feature_types'][0]
-    barcode_miRNA_adata.var['genome'] = raw_feature_bc_matrix.var['genome'][0]
-    # rename all mirbase genes for clarity
-    barcode_miRNA_adata.var_names = list(
-        micro for micro in barcode_miRNA_adata.var_names + '_DroshaProd')
-
-    # transpose and join outer
-    print('raw_feature_bc_matrix dimensions: ', raw_feature_bc_matrix)
-    print('barcode_miRNA_adata dimensions: ', barcode_miRNA_adata)
-    tmp_combine = raw_feature_bc_matrix.T.concatenate(
-        barcode_miRNA_adata.T, join='outer', index_unique=None)
-    print('transpose merged dimensions: ', tmp_combine)
-    raw_with_miRNAs = tmp_combine.T
-    print('raw_with_miRNAs dimensions: ', raw_with_miRNAs)
-    print('raw_with_miRNAs var_names: ', raw_with_miRNAs.var_names)
-    del tmp_combine
-    return raw_with_miRNAs
-
+    MTXOUT = os.path.join(MTX_outdir,'matrix.mtx')
+    with open(MTXOUT, 'rb') as FROM, gzip.open(MTXOUT + '.gz', 'wb') as TO:
+        TO.writelines(FROM)
+    
+    # Cleanup
+    os.remove(MTXOUT)
+    
+    file_list = [os.path.join(outdir,f) \
+                 for f in ['features.tsv.gz', 'barcodes.tsv.gz','matrix.mtx.gz']]
+    if all(list(map(os.path.isfile,file_list))):
+        print('Successfully wrote MEX-formatted matrix with miRNAs')
 
 def main(cmdl):
     args = _parse_cmdl(cmdl)
     outdir = args.outdir
-    genome = args.genome
+    matrix_folder = args.matrix_folder
+    #genome = args.genome
+
     if os.path.isdir(outdir):
         # overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
         # if overwrite.lower() == 'n':
@@ -668,58 +532,87 @@ def main(cmdl):
 
     print('Reading in gff3 file ...')
     miRNA_anno_df = read_mirbase_gff3(args.REFERENCE_FILE)
-    coord_dict = make_Drosha_coord_dict(miRNA_anno_df)
+    coord_dict, mi_name_dict = make_Drosha_coord_dict(miRNA_anno_df)
 
     print('Detecting if BAM uses \'chr\' prefix ...')
     coord_dict = fix_chromnames(coord_dict, args.BAMFILE)
 
-    ('Counting miRNA processing products ...')
-    results, miRNA_dist_dict, counts_per_miRNA = count_miRNAs(
-        args.BAMFILE, 
-        coord_dict, 
-        sample_name, 
-        bam_read_length)
+    #print('Counting miRNA processing products ...')
+    #results, miRNA_dist_dict, counts_per_miRNA = count_miRNAs(
+    #    args.BAMFILE, 
+    #    coord_dict, 
+    #    sample_name, 
+    #    bam_read_length)
 
-    detailed_results_df, count_df, counts_per_miRNA2 = count_miRNAs_simple(
+    print('Counting miRNA processing products ...')
+    detailed_results_df, count_df, \
+        Drosha_dist_table, counts_per_miRNA2 = count_miRNAs(
         BAM = args.BAMFILE,
         coord_dict = coord_dict,
         sample_name = sample_name,
         bam_read_length = bam_read_length,
         Drosha_tolerance = 4, 
-        write_miRNA_bam = True)
+        write_miRNA_bam = args.write_bam_output,
+        outdir = outdir)
     
+    ## OUTPUTS ##
+
+    # Write detailed candidate TSO/miRNA reads in a BAM-like CSV format
+    detailed_results_df.to_csv(
+        os.path.join(outdir,'miRNA_read_details.csv.gz'),
+        index=True,
+        compression='gzip'
+    )
     # Write counts per miRNA summary
+    counts_per_miRNA2.to_csv(
+        os.path.join(outdir,'miRNA_counts_summary.csv'),
+        index=True
+    )
+    # Write table of TSO distances to Drosha site, for future filtering of bogus miRNAs
+    Drosha_dist_table.to_csv(
+        os.path.join(outdir,'TSO_distances_to_Drosha.csv'),
+        index=True,
+        compression='gzip')
+
+    # Write counts matrix of miRNA processing products in all detected cells:
+    print('Writing csv-formatted matrix of miRNA-associated reads:')
+    count_df.to_csv(
+        os.path.join(args.outdir, 'miRNA_count_matrix.csv.gz'), 
+        compression='gzip', 
+        index=True)
+
+    # Merge miRNAs with existing GEX matrix
+    merge_miRNA_with_GEX(
+        matrix_folder = matrix_folder,
+        outdir = outdir,
+        count_df = count_df,
+        mi_name_dict = mi_name_dict)
+
     #####
 
     # Distance to Drosha site pileup
-    with open(os.path.join(outdir, "distance_to_DROSHA_dict.json"), "w") as outfile:
-        json.dump(miRNA_dist_dict, outfile)
+    #with open(os.path.join(outdir, "distance_to_DROSHA_dict.json"), "w") as outfile:
+    #    json.dump(miRNA_dist_dict, outfile)
     #####
-    print('Done with part 1!')
+    #print('Done with part 1!')
 
-    raw_feature_bc_matrix = sc.read_10x_h5(args.raw)
-    raw_feature_bc_matrix.var_names_make_unique()
-    raw_with_miRNAs = miRNA_to_featureMatrix(results, raw_feature_bc_matrix)
-    raw_with_miRNAs.var['sample_name'] = sample_name
+    #raw_feature_bc_matrix = sc.read_10x_h5(args.raw)
+    #raw_feature_bc_matrix.var_names_make_unique()
+    #raw_with_miRNAs = miRNA_to_featureMatrix(results, raw_feature_bc_matrix)
+    #raw_with_miRNAs.var['sample_name'] = sample_name
 
 
-    outfile = os.path.join(outdir, 'raw_feature_matrix_with_miRNAs.h5ad')
-    raw_with_miRNAs.write(outfile)
+    #outfile = os.path.join(outdir, 'raw_feature_matrix_with_miRNAs.h5ad')
+    #raw_with_miRNAs.write(outfile)
 
-    #v2 replacement:
-    if args.results_table:
-        print('Writing csv matrix of miRNA-associated reads:')
-        count_df.to_csv(
-            os.path.join(outdir, 'miRNA_count_matrix.csv.gz'), 
-            compression='gzip', 
-            index=True)
+
 
     
-    if args.results_table:
-        print('Writing miRNAs_result_table')
-        results.to_csv(os.path.join(outdir, 'miRNAs_result_table.csv'), index=True)
+    #if args.results_table:
+    #    print('Writing miRNAs_result_table')
+    #    results.to_csv(os.path.join(outdir, 'miRNAs_result_table.csv'), index=True)
 
-    print('Done with part 2!')
+    #print('Done with part 2!')
 
 def _parse_cmdl(cmdl):
     """ Define and parse command-line interface. """
@@ -730,15 +623,18 @@ def _parse_cmdl(cmdl):
     parser.add_argument('BAMFILE', help='Input bam file')
     parser.add_argument('REFERENCE_FILE', help='miRBase gff3 file')
     parser.add_argument('--outdir', dest='outdir', help='Output folder',
-                        default="raw_feature_matrix_with_miRNAs")
-    parser.add_argument('--genome', dest='genome',
-                        help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
-    # need to implement .mtx
-    # parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
-    parser.add_argument('--raw', dest='raw', required=True,
-                        help='10x Genomics raw feature bc matrix to concatenate miRNAs to')
-    parser.add_argument('--results_table', dest='results_table',
-                        help='Write out results table of reading miRNAs as csv', default=True)
+                        default="Clippings_outs")
+    #parser.add_argument('--genome', dest='genome',
+    #                    help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
+    #parser.add_argument('--raw', dest='raw', required=True,
+    #                    help='10x Genomics raw feature bc matrix to concatenate miRNAs to')
+    parser.add_argument('--matrix_folder', dest='matrix_folder', required=True,
+                        help='10x Genomics matrix folder (raw or filtered) to concatenate miRNAs into')
+    parser.add_argument('--write_bam_output',dest='write_bam_output',required=False, default=True,
+                        help = 'Write candidate miRNA processing product reads to BAM output')
+
+    #parser.add_argument('--results_table', dest='results_table',
+    #                    help='Write out results table of reading miRNAs as csv', default=True)
     #parser = logmuse.add_logging_options(parser)
     return parser.parse_args(cmdl)
 

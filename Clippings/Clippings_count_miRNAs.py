@@ -108,14 +108,14 @@ def fix_chromnames(miRNA_anno_df, BAM):
             
             if plus_prefix in chromnames_in_bam:
                 changedict[c] = plus_prefix
-                sys.stdout.write(f'{c} changed to {plus_prefix}')
+                sys.stdout.write(f'{c} changed to {plus_prefix} \n')
 
             elif minus_prefix in chromnames_in_bam:
                 changedict[c] = minus_prefix
-                sys.stdout.write(f'\'{c}\' in GFF file changed to \'{minus_prefix}\'')
+                sys.stdout.write(f'\'{c}\' in GFF file changed to \'{minus_prefix}\' \n')
     
     if list(changedict.keys()) == list(changedict.values()):
-        sys.stdout.write('GFF and BAM chromosomes name match. No changes made.')
+        sys.stdout.write('GFF and BAM chromosomes name match. No changes made. \n')
     else:
         fixed_miRNA_anno_df['seqname'] = fixed_miRNA_anno_df['seqname'].map(changedict)
         
@@ -287,14 +287,14 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
 
         if os.path.exists('tmp_miRNA_matching.bam'):
             os.remove("tmp_miRNA_matching.bam")
-            sys.stdout.write('Cleaning up temp files...')
+            sys.stdout.write('Cleaning up temp files... \n')
             
         FILESIZE = np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2)
         sys.stdout.write(f'miRNA BAM file size = {FILESIZE} MB \n')
 
         sys.stdout.write(f'Generating BAM index... {time.asctime()} \n')
         pysam.index(OUTBAM_FILENAME)
-        sys.stdout.write(f"Finished sorting and indexing BAM output {time.asctime()}")
+        sys.stdout.write(f"Finished sorting and indexing BAM output {time.asctime()} \n")
         
     sys.stdout.write(f'Starting count_miRNAs: {time.asctime()} \n')
     #count_table = defaultdict(set)
@@ -337,7 +337,7 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
         for tally, read in enumerate(alignments.fetch(chrom, start, end)):
             tally += 1
             if tally % 1e5 == 0:
-                sys.stdout.write(f'Lines read: {tally:,}')
+                sys.stdout.write(f'Lines read: {tally:,} \n')
 
             if read.has_tag("ts:i"):
                 if read.has_tag('UB') & read.has_tag('CB'):
@@ -430,10 +430,10 @@ def merge_miRNA_with_GEX(
     count_df: pd.DataFrame ,
     mi_name_dict: dict):
     
-    sys.stdout.write(f'Reading GEX matrix from {matrix_folder}... {time.asctime()}')
+    sys.stdout.write(f'Reading GEX matrix from {matrix_folder}... {time.asctime()} \n')
     MTX, OBS, VAR = read_10x_mtx(matrix_folder)
 
-    sys.stdout.write(f'Merging matrices... {time.asctime()}')
+    sys.stdout.write(f'Merging matrices... {time.asctime()} \n')
     # Throw away any barcodes with miRNAs if they are not in GEX matrix
     miRNA_barcodes = set(count_df.columns)
     keep_cells = [name for name in OBS.index if name in miRNA_barcodes]
@@ -473,7 +473,7 @@ def merge_miRNA_with_GEX(
         compression='gzip',
         header=None)
 
-    sys.stdout.write(f'Writing MTX... {time.asctime()}')
+    sys.stdout.write(f'Writing MTX... {time.asctime()} \n')
     # Write barcodes.tsv.gz
     OBS.to_csv(
         os.path.join(MTX_outdir,'barcodes.tsv.gz'),
@@ -481,7 +481,7 @@ def merge_miRNA_with_GEX(
         compression='gzip',
         header=None)
 
-    sys.stdout.write(f'gzipping... {time.asctime()}')
+    sys.stdout.write(f'gzipping... {time.asctime()} \n')
     # Write MEX-formatted MTX file and gzip it
     MTXOUT = os.path.join(MTX_outdir,'matrix.mtx')
     io.mmwrite(
@@ -498,7 +498,7 @@ def merge_miRNA_with_GEX(
     file_list = [os.path.join(outdir,f) \
                  for f in ['features.tsv.gz', 'barcodes.tsv.gz','matrix.mtx.gz']]
     if all(list(map(os.path.isfile,file_list))):
-        sys.stdout.write('Successfully wrote MEX-formatted matrix with miRNAs')
+        sys.stdout.write('Successfully wrote MEX-formatted matrix with miRNAs \n')
 
 def main(cmdl):
     args = _parse_cmdl(cmdl)

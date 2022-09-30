@@ -33,7 +33,6 @@ import pysam
 import scipy
 from scipy import io
 
-
 def read_mirbase_gff3(file):
     """
     Reads a GFF3-formatted file from miRBase into a pandas dataframe.
@@ -83,7 +82,46 @@ def read_mirbase_gff3(file):
 
     return miRNA_anno_df
 
-def make_Drosha_coord_dict(miRNA_anno_df):
+def fix_chromnames(miRNA_anno_df, BAM):
+    """
+    Checks to see if GFF file and BAM file agree with using a prefix of the form 'chr'
+    If a difference is detected, the GFF annotations will be fixed to match the BAM file.
+    
+    Args:
+        miRNA_anno_df (pd.DataFrame): Dataframe version of GFF file imported by read_mirbase_gff3()
+        
+    Returns:
+        miRNA_anno_df (pd.DataFrame): miRNA_anno_df with corrected 'seqname' column
+    """
+    fixed_miRNA_anno_df = miRNA_anno_df.copy()
+    
+    chromnames_in_bam = set(pysam.AlignmentFile(BAM, "rb").header.references)
+    chromnames_in_gff = sorted(set(miRNA_anno_df['seqname']))
+    changedict = {c:c for c in chromnames_in_gff}
+
+    for c in chromnames_in_gff:
+        PREFIXES = ['chr','Chr','CHR']
+        for P in PREFIXES:
+            
+            plus_prefix = P + c
+            minus_prefix = c[3:] if c.startswith(P) else ''
+            
+            if plus_prefix in chromnames_in_bam:
+                changedict[c] = plus_prefix
+                sys.stdout.write(f'{c} changed to {plus_prefix}')
+
+            elif minus_prefix in chromnames_in_bam:
+                changedict[c] = minus_prefix
+                sys.stdout.write(f'\'{c}\' in GFF file changed to \'{minus_prefix}\'')
+    
+    if list(changedict.keys()) == list(changedict.values()):
+        sys.stdout.write('GFF and BAM chromosomes name match. No changes made.')
+    else:
+        fixed_miRNA_anno_df['seqname'] = fixed_miRNA_anno_df['seqname'].map(changedict)
+        
+    return fixed_miRNA_anno_df
+
+def make_Drosha_coord_dict(miRNA_anno_df, BAM):
     """
     For the moment, Clippings will only look for TSO-containing reads aligning to
     the 3p-arm of annotated miRNAs. While reads piling up at the 5p-arm can sometimes
@@ -103,7 +141,8 @@ def make_Drosha_coord_dict(miRNA_anno_df):
         
         mi_name_dict (dict): dictionary mapping miRNA gene name to "MIMAT"-style accession
     """
-    
+    chromnames_in_bam = set(pysam.AlignmentFile(BAM, "rb").header.references)
+
     try:
         threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$')]
     except KeyError:
@@ -125,65 +164,14 @@ def make_Drosha_coord_dict(miRNA_anno_df):
 
     coord_dict = defaultdict(dict)
     for i, row in threep.iterrows():
-        coord_dict[row.seqname][row.Name] = Drosha_site(row)
+        if row.seqname in chromnames_in_bam:
+            coord_dict[row.seqname][row.Name] = Drosha_site(row)
     
     mi_name_dict = dict(zip(threep['Name'],threep['ID'])) 
     
     return coord_dict, mi_name_dict
     
-def fix_chromnames(coord_dict, BAM):
-    """
-    Checks if BAM file is using 'chr' prefix on chromosome names and fixes the dictionary if necessary.
-
-    Args:
-        coord_dict (dict): Dictionary of chromosome as key and value as default dict.
-            Default dict has miRNA name and drosha coordinate with '+' or '-' strand.
-        BAM (bamfile): Bamfile produced by 10x Genomics' CellRanger
-
-    Returns:
-        dict: Updated version of coord_dict with correct 'chr' prefix.
-
-    """
-    chromnames_in_gff3 = list(coord_dict.keys())
-    chromnames_in_bam = pysam.AlignmentFile(BAM, "rb").header.references
-    pattern = re.compile('chr', re.IGNORECASE)
     
-    def get_prefix(list_of_chromosome_names):
-        dominant_prefix = pd.Series([
-            re.match(pattern,name).group() \
-            for name in list_of_chromosome_names \
-            if re.match(pattern, name)
-        ]
-        ).value_counts().idxmax()
-        
-        return dominant_prefix
-    
-    # Check to see if either the BAM file or the GFF using a 'chr'-style prefix
-    BAM_has_prefix = pd.Series(chromnames_in_bam).str.match(pattern).sum() / len(chromnames_in_bam) > .1
-    BAM_prefix = get_prefix(chromnames_in_bam) if BAM_has_prefix else ''
-    
-    GFF_has_prefix = pd.Series(chromnames_in_gff3).str.match(pattern).sum() / len(chromnames_in_bam) > .1
-    GFF_prefix = get_prefix(chromnames_in_gff3) if GFF_has_prefix else ''
-
-    ## rewrite GFF prefix to match BAM
-    if BAM_has_prefix and not GFF_has_prefix:
-        for c in chromnames_in_gff3:
-            fixed_c = BAM_prefix + str(c)
-            if fixed_c in chromnames_in_bam:
-                print(f'Changing {c} to {fixed_c}')
-                coord_dict[fixed_c] = coord_dict.pop(c)
-                
-    elif GFF_has_prefix and not BAM_has_prefix:
-        for c in chromnames_in_gff3:
-            fixed_c = c.replace(GFF_prefix,BAM_prefix)
-            if fixed_c in chromnames_in_bam:
-                print(f'Changing {c} in GFF reference to {fixed_c}')
-                coord_dict[fixed_c] = coord_dict.pop(c)
-    else:
-        print('BAM and GFF prefixes match. No fixing needed.')
-            
-    return coord_dict
-
 def get_sample_name_from_bam_header(BAMFILE):
     alignments = pysam.AlignmentFile(BAMFILE, "rb")    
     try: 
@@ -292,23 +280,23 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
         """
         Sorts, indexes, and cleans up temporary miRNA BAM file.
         """
-        print("Finalizing BAM output: ", time.asctime())    
-        print("Sorting output...")
+        sys.stdout.write(f'Finalizing BAM output: {time.asctime()} \n')    
+        sys.stdout.write("Sorting output... \n")
         
         pysam.sort("-o", OUTBAM_FILENAME, "tmp_miRNA_matching.bam")
 
         if os.path.exists('tmp_miRNA_matching.bam'):
             os.remove("tmp_miRNA_matching.bam")
-            print('Cleaning up temp files...')
+            sys.stdout.write('Cleaning up temp files...')
             
         FILESIZE = np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2)
-        print(f'miRNA BAM file size = {FILESIZE} MB')
+        sys.stdout.write(f'miRNA BAM file size = {FILESIZE} MB \n')
 
-        print('Generating BAM index...', time.asctime())
+        sys.stdout.write(f'Generating BAM index... {time.asctime()} \n')
         pysam.index(OUTBAM_FILENAME)
-        print("Finished sorting and indexing BAM output ", time.asctime())
+        sys.stdout.write(f"Finished sorting and indexing BAM output {time.asctime()}")
         
-    print("Starting count_miRNAs: ", time.asctime())
+    sys.stdout.write(f'Starting count_miRNAs: {time.asctime()} \n')
     #count_table = defaultdict(set)
     #miRNA_dist_dict = defaultdict(dict)
     
@@ -322,8 +310,8 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
         for m in coord_dict[c].keys():
             allmi[m] = c
 
-    print(f'Reading BAM file: {BAM} ...') 
-    print(f'Inferred read length: {bam_read_length} bases')
+    sys.stdout.write(f'Reading BAM file: {BAM} ... \n') 
+    sys.stdout.write(f'Inferred read length: {bam_read_length} bases \n')
     alignments = pysam.AlignmentFile(BAM, "rb")
     
     # Initialize output BAM file, if writing one
@@ -349,7 +337,7 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
         for tally, read in enumerate(alignments.fetch(chrom, start, end)):
             tally += 1
             if tally % 1e5 == 0:
-                print('Lines read:', f'{tally:,}')
+                sys.stdout.write(f'Lines read: {tally:,}')
 
             if read.has_tag("ts:i"):
                 if read.has_tag('UB') & read.has_tag('CB'):
@@ -372,7 +360,7 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
                     NO_UB += 1
     alignments.close()
     
-    print('# candidate reads with no UB tag:', NO_UB)
+    sys.stdout.write(f'# candidate reads with no UB tag: {NO_UB} \n')
     
     if write_miRNA_bam:
         MI_READS.close()
@@ -414,7 +402,7 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
     ## OUTPUT 4: Make a per-miRNA tally
     counts_per_miRNA = dedup_filt_df.groupby('miRNA').agg({'UB':len}).sort_values(by='UB', ascending=False)
 
-    print("Finished count_miRNAs: ", time.asctime())
+    sys.stdout.write(f'Finished count_miRNAs: {time.asctime()} \n')
     return detailed_results_df, count_df, Drosha_dist_table, counts_per_miRNA
 
 def read_10x_mtx(matrix_path: Union[str, bytes, os.PathLike]):
@@ -442,10 +430,10 @@ def merge_miRNA_with_GEX(
     count_df: pd.DataFrame ,
     mi_name_dict: dict):
     
-    print(f'Reading GEX matrix from {matrix_folder}...', time.asctime())
+    sys.stdout.write(f'Reading GEX matrix from {matrix_folder}... {time.asctime()}')
     MTX, OBS, VAR = read_10x_mtx(matrix_folder)
 
-    print(f'Merging matrices...', time.asctime())
+    sys.stdout.write(f'Merging matrices... {time.asctime()}')
     # Throw away any barcodes with miRNAs if they are not in GEX matrix
     miRNA_barcodes = set(count_df.columns)
     keep_cells = [name for name in OBS.index if name in miRNA_barcodes]
@@ -485,7 +473,7 @@ def merge_miRNA_with_GEX(
         compression='gzip',
         header=None)
 
-    print('Writing MTX...', time.asctime())
+    sys.stdout.write(f'Writing MTX... {time.asctime()}')
     # Write barcodes.tsv.gz
     OBS.to_csv(
         os.path.join(MTX_outdir,'barcodes.tsv.gz'),
@@ -493,7 +481,7 @@ def merge_miRNA_with_GEX(
         compression='gzip',
         header=None)
 
-    print('gzipping...', time.asctime())
+    sys.stdout.write(f'gzipping... {time.asctime()}')
     # Write MEX-formatted MTX file and gzip it
     MTXOUT = os.path.join(MTX_outdir,'matrix.mtx')
     io.mmwrite(
@@ -510,13 +498,14 @@ def merge_miRNA_with_GEX(
     file_list = [os.path.join(outdir,f) \
                  for f in ['features.tsv.gz', 'barcodes.tsv.gz','matrix.mtx.gz']]
     if all(list(map(os.path.isfile,file_list))):
-        print('Successfully wrote MEX-formatted matrix with miRNAs')
+        sys.stdout.write('Successfully wrote MEX-formatted matrix with miRNAs')
 
 def main(cmdl):
     args = _parse_cmdl(cmdl)
     outdir = args.outdir
     matrix_folder = args.matrix_folder
-    #genome = args.genome
+    
+    sys.stdout.write('Launching Clippings_count_miRNAs... \n')
 
     if os.path.isdir(outdir):
         # overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
@@ -525,27 +514,21 @@ def main(cmdl):
         # elif overwrite.lower() == 'y':
         #    shutil.rmtree(outdir)
         # Commented out above because if used as script (as it is now), there is no user input
-        print('Output directory already exists')
+        sys.stderr.write('Output directory already exists \n')
     os.mkdir(outdir)
 
     sample_name, bam_read_length = get_bam_features(args.BAMFILE)
-    print(f'Detected sample name as: {sample_name}')
+    sys.stdout.write(f'Detected sample name as: {sample_name} \n')
 
-    print('Reading in gff3 file ...')
+    sys.stdout.write('Reading in gff3 file ...\n')
     miRNA_anno_df = read_mirbase_gff3(args.REFERENCE_FILE)
-    coord_dict, mi_name_dict = make_Drosha_coord_dict(miRNA_anno_df)
 
-    print('Detecting if BAM uses \'chr\' prefix ...')
-    coord_dict = fix_chromnames(coord_dict, args.BAMFILE)
+    sys.stdout.write('Detecting if BAM uses \'chr\' prefix ... \n')
+    miRNA_anno_df = fix_chromnames(miRNA_anno_df, args.BAMFILE)
 
-    #print('Counting miRNA processing products ...')
-    #results, miRNA_dist_dict, counts_per_miRNA = count_miRNAs(
-    #    args.BAMFILE, 
-    #    coord_dict, 
-    #    sample_name, 
-    #    bam_read_length)
+    coord_dict, mi_name_dict = make_Drosha_coord_dict(miRNA_anno_df, args.BAMFILE)
 
-    print('Counting miRNA processing products ...')
+    sys.stdout.write('Counting miRNA processing products ... \n')
     detailed_results_df, count_df, \
         Drosha_dist_table, counts_per_miRNA2 = count_miRNAs(
         BAM = args.BAMFILE,
@@ -576,7 +559,7 @@ def main(cmdl):
         compression='gzip')
 
     # Write counts matrix of miRNA processing products in all detected cells:
-    print('Writing csv-formatted matrix of miRNA-associated reads:')
+    sys.stdout.write('Writing csv-formatted matrix of miRNA-associated reads: \n')
     count_df.to_csv(
         os.path.join(args.outdir, 'miRNA_count_matrix.csv.gz'), 
         compression='gzip', 
@@ -588,32 +571,9 @@ def main(cmdl):
         outdir = outdir,
         count_df = count_df,
         mi_name_dict = mi_name_dict)
-
-    #####
-
-    # Distance to Drosha site pileup
-    #with open(os.path.join(outdir, "distance_to_DROSHA_dict.json"), "w") as outfile:
-    #    json.dump(miRNA_dist_dict, outfile)
-    #####
-    #print('Done with part 1!')
-
-    #raw_feature_bc_matrix = sc.read_10x_h5(args.raw)
-    #raw_feature_bc_matrix.var_names_make_unique()
-    #raw_with_miRNAs = miRNA_to_featureMatrix(results, raw_feature_bc_matrix)
-    #raw_with_miRNAs.var['sample_name'] = sample_name
-
-
-    #outfile = os.path.join(outdir, 'raw_feature_matrix_with_miRNAs.h5ad')
-    #raw_with_miRNAs.write(outfile)
-
-
-
     
-    #if args.results_table:
-    #    print('Writing miRNAs_result_table')
-    #    results.to_csv(os.path.join(outdir, 'miRNAs_result_table.csv'), index=True)
-
-    #print('Done with part 2!')
+    total_miRNAs_detected = counts_per_miRNA2.sum()['UB']
+    sys.stdout.write(f'Done. Total putative miRNA processing products detected: {total_miRNAs_detected} \n')
 
 def _parse_cmdl(cmdl):
     """ Define and parse command-line interface. """
@@ -625,18 +585,10 @@ def _parse_cmdl(cmdl):
     parser.add_argument('REFERENCE_FILE', help='miRBase gff3 file')
     parser.add_argument('--outdir', dest='outdir', help='Output folder',
                         default="Clippings_outs")
-    #parser.add_argument('--genome', dest='genome',
-    #                    help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
-    #parser.add_argument('--raw', dest='raw', required=True,
-    #                    help='10x Genomics raw feature bc matrix to concatenate miRNAs to')
     parser.add_argument('--matrix_folder', dest='matrix_folder', required=True,
                         help='10x Genomics matrix folder (raw or filtered) to concatenate miRNAs into')
     parser.add_argument('--write_bam_output',dest='write_bam_output',required=False, default=True,
                         help = 'Write candidate miRNA processing product reads to BAM output')
-
-    #parser.add_argument('--results_table', dest='results_table',
-    #                    help='Write out results table of reading miRNAs as csv', default=True)
-    #parser = logmuse.add_logging_options(parser)
     return parser.parse_args(cmdl)
 
 if __name__ == '__main__':

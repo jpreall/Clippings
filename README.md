@@ -33,15 +33,7 @@ Count mapped reads harboring TSO sub-sequene.
 
 ### 4. write_tso_bam.py
 ##### This will output TSO_reads.bam and TSO_reads.bam.bai
+Supports multiple CPU threads to speed up processing. 
 ```
-(your_env) $ python write_tso_bam.py [path_to_bam_file]
-```
-
-### 5. bogus_miRNAs.py
-#### Label families for given AnnData in .var section and create dataframe for miRNA families and their associated counts.
-#### This module does not yet group families based on trailing '-#' suffixes. Module does not yet eliminate bogus miRNAs that do not contain true 5' read pile ups.
-To be run in python:
-```
-adata = sc.read('path_to_miRNA_adata.h5ad_output')
-family_count = bogus_miRNAs.find_families(adata)
+(your_env) $ python write_tso_bam.py [path_to_bam_file] --threads [threads]
 ```

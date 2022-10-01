@@ -22,11 +22,13 @@ Count mapped reads harboring TSO sub-sequene.
 ### 2. Clippings_count_miRNAs.py
 This will output: 
 ```
-  [SAMPLE]_sorted_miRNA_reads.bam
-  miRNA_read_details.csv.gz
-  miRNA_count_matrix.csv.gz
-  TSO_distances_to_Drosha.csv.gz
-  feature_bc_matrix_with_miRNAs/
+  feature_bc_matrix_with_miRNAs/    # Cellranger-formatted MTX files containing miRNA clippings as additional genes
+  miRNA_counts_summary.csv          # Sorted table of abundant miRNA clippings
+  [SAMPLE]_sorted_miRNA_reads.bam.  # BAM file containing reads annotated as miRNA clippings (eg. for viewing in IGV)
+  miRNA_read_details.csv.gz         # BAM-style read-level detail in CSV format
+  miRNA_count_matrix.csv.gz         # CSV-formatted cell-by-miRNA matrix
+  TSO_distances_to_Drosha.csv.gz.   # Summary of distances to predicted Drosha cut sit for each miRNA.  May be used in future to filter 'bogus' miRNAs
+  
 ```
 
 ```

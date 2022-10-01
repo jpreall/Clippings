@@ -7,9 +7,12 @@ Inputs:
     BAMFILE = BAM file produced by Cellranger v4+ with TSO reads tagged with ts:i
     optional:
         --o = output filename.  Default: 'TSO_reads.bam'
-    Usage: python write_tso_bam.py BAMFILE
-Author: bhe@cshl.edu
-Date: 2021-08
+        --threads = Number of CPU threads to use to speed up processing. 
+            Default = 4
+            Automatically adjusts to 1 less than system maximum if set too high
+    Example Usage: python write_tso_bam.py BAMFILE -o MYBAM_TSO_reads.bam --threads 8
+Author: jpreall@cshl.edu
+Date: 2022-09
 """
 
 import os

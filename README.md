@@ -20,19 +20,18 @@ Count mapped reads harboring TSO sub-sequene.
 ```
 
 ### 2. Clippings_count_miRNAs.py
-##### This will output miRNAs_result_table.csv, raw_feature_matrix_with_miRNAs.h5ad, sorted_miRNA_reads.bam, sorted_miRNA_reads.bam.bai
+This will output: 
+  \[SAMPLE\]_sorted_miRNA_reads.bam
+  miRNA_read_details.csv.gz
+  miRNA_count_matrix.csv.gz
+  TSO_distances_to_Drosha.csv.gz
+  feature_bc_matrix_with_miRNAs/
 ```
 (your_env) $ python Clippings_count_miRNAs.py [path_to_bam_file] [path_to_gff3] --outdir [output_folder_name] --genome [path_to_genome] --raw [path_to_raw_matrix]
 ```
 
-### 3. layer_deg_and_miRNA.py
-##### This will output raw_feature_matrix_with_miRNAs_and_deg_count.h5ad
-```
-(your_env) $ python layer_deg_and_miRNA.py --deg_adata [path_to_deg_adata.h5_output] --miRNA_adata [path_to_miRNA_adata.h5ad_output] --outdir [output_folder_name]
-```
-
-### 4. write_tso_bam.py
-##### This will output TSO_reads.bam and TSO_reads.bam.bai
+### 3. write_tso_bam.py
+This will output TSO_reads.bam and TSO_reads.bam.bai
 Supports multiple CPU threads to speed up processing. 
 ```
 (your_env) $ python write_tso_bam.py [path_to_bam_file] --threads [threads]

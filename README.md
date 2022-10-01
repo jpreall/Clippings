@@ -50,6 +50,7 @@ This will output:
 ### 3. write_tso_bam.py
 This module writes a new BAM file with only the TSO-containing reads. This might be useful if you want to take a closer look at specific genome regions or visualize them in IGV. Default output is named 'TSO_reads.bam' with accompanying index 'TSO_reads.bam.bai'.
 Supports multiple CPU threads to speed up processing. 
+![Clippings Logo](files/Clippings_IGV.png)   
 ```
 (your_env) $ python write_tso_bam.py [path_to_bam_file] --threads [threads]
 ```

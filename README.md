@@ -28,7 +28,6 @@ This will output:
   miRNA_read_details.csv.gz         # BAM-style read-level detail in CSV format
   miRNA_count_matrix.csv.gz         # CSV-formatted cell-by-miRNA matrix
   TSO_distances_to_Drosha.csv.gz    # Summary of distances to predicted Drosha cut sit for each miRNA.  May be used in future to filter 'bogus' miRNAs
-  
 ```
 
 ```

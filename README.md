@@ -1,6 +1,5 @@
 # Clippings
-![Clippings Logo](files/Clippings_logo.png)\n
-
+![Clippings Logo](files/Clippings_logo.png)   
 Use pysam to walk through the bam file and count every read with a ts:i tag, indicating the tso was soft clipped.
 Count mapped reads harboring TSO sub-sequene.
 

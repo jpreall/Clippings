@@ -20,6 +20,21 @@ Count mapped reads harboring TSO sub-sequene.
 ```
 
 ### 2. Clippings_count_miRNAs.py
+Counts all TSO reads aligning precisely to a predicted 3' Drosha processing site for annotated miRNAs.
+Reads are counted if they contain a unique, corrected UMI-barcode pair produced by Cellranger.
+Requires a GFF3-formatted miRNA annotation file downloaded from miRBase. Currently tested:
+* Human (GRCh38)
+* Mouse (mm10)
+* Fruit Fly (dm6)
+
+```
+(your_env) $ python Clippings_count_miRNAs.py [path_to_bam_file] [path_to_gff3] \
+  --matrix_folder [folder name] \ # Required: Cellranger Gene Expression Matrix Folder to merge with miRNA counts
+  --outdir [output_folder_name] \ # Optional: Output folder to store files. Default: 'Clippings_outs'
+  --write_bam_output [True/False] # Optional: write miRNA clippings to BAM file
+
+```
+
 This will output: 
 ```
   feature_bc_matrix_with_miRNAs/    # Cellranger-formatted MTX files containing miRNA clippings as additional genes
@@ -30,9 +45,7 @@ This will output:
   TSO_distances_to_Drosha.csv.gz    # Summary of distances to predicted Drosha cut sit for each miRNA.  May be used in future to filter 'bogus' miRNAs
 ```
 
-```
-(your_env) $ python Clippings_count_miRNAs.py [path_to_bam_file] [path_to_gff3] --outdir [output_folder_name] --genome [path_to_genome] --raw [path_to_raw_matrix]
-```
+
 
 ### 3. write_tso_bam.py
 This will output TSO_reads.bam and TSO_reads.bam.bai

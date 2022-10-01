@@ -32,7 +32,6 @@ Requires a GFF3-formatted miRNA annotation file downloaded from miRBase. Current
   --matrix_folder [folder name] \ # Required: Cellranger Gene Expression Matrix Folder to merge with miRNA counts
   --outdir [output_folder_name] \ # Optional: Output folder to store files. Default: 'Clippings_outs'
   --write_bam_output [True/False] # Optional: write miRNA clippings to BAM file
-
 ```
 
 This will output: 

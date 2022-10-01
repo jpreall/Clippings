@@ -33,6 +33,17 @@ import pysam
 import scipy
 from scipy import io
 
+__all__ = [
+    'read_mirbase_gff3', 
+    'fix_chromnames',
+    'make_Drosha_coord_dict',
+    'get_sample_name_from_bam_header',
+    'get_bam_readlength',
+    'get_bam_features',
+    'count_miRNAs',
+    'read_10x_mtx',
+    'merge_miRNA_with_GEX',]
+
 def read_mirbase_gff3(file):
     """
     Reads a GFF3-formatted file from miRBase into a pandas dataframe.

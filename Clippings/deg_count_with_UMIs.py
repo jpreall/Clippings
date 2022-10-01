@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# $ -cwd
-# $ -v PATH,LD_LIBRARY_PATH
 """
 Count mapped reads harboring TSO sub-sequene
 Input:
@@ -9,32 +6,31 @@ Input:
 Author: jpreall@cshl.edu
 Date: 2021-04
 """
-import argparse
-import sys
-import pysam
 import collections
+from collections import defaultdict
+import time
 import sys
 import os
-import csv
-import string
-import argparse
-import gzip
-import scipy.sparse as sp
-from scipy import io
+import os.path as path
 import shutil
+import argparse
+import csv
+import gzip
+import json
+import glob
+import pkg_resources
+#import string
+
+import pysam
+#import scipy.sparse as sp
+from scipy import io
 import numpy as np
 import h5sparse
 import h5py
 import gtfparse
-import time
 from pararead import ParaReadProcessor
 import logmuse
-import json
-import glob
-import os.path as path
-import pkg_resources
-import collections
-from collections import defaultdict
+
 
 
 def _parse_cmdl(cmdl):

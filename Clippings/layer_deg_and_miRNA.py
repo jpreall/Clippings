@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-#$ -cwd
-#$ -v PATH,LD_LIBRARY_PATH
 """
 Combine miRNA_adata.h5 and deg_count_adata.h5 into a single .h5ad as layers
 """

@@ -22,7 +22,7 @@ Count mapped reads harboring TSO sub-sequene.
 ### 2. Clippings_count_miRNAs.py
 Counts all TSO reads aligning precisely to a predicted 3' Drosha processing site for annotated miRNAs.
 Reads are counted if they contain a unique, corrected UMI-barcode pair produced by Cellranger.
-Requires a GFF3-formatted miRNA annotation file downloaded from miRBase. Currently tested:
+Requires a GFF3-formatted miRNA annotation file downloaded from miRBase. Currently tested organisms:
 * Human (GRCh38)
 * Mouse (mm10)
 * Fruit Fly (dm6)

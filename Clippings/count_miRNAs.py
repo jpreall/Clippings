@@ -1,5 +1,5 @@
 """
-Clippings_count_miRNAs.py
+count_miRNAs.py
 
 Count mapped reads harboring TSO sub-subsequence. Only works with CellRanger 4.0+ outputs.
 
@@ -12,7 +12,7 @@ Inputs:
     
     # TODO: Add ability to use miRNA GTF/coordinate files produced elsewhere
     # TODO: Change behavior of miRNA GFF3 references: Instead, specify genome version and pull from a pre-packaged file
-    Usage: Clippings_count_miRNA.py BAMFILE REFERENCE_FILE --genome --outdir --raw
+    Usage: count_miRNA.py BAMFILE REFERENCE_FILE --genome --outdir --raw
 
 Author: jpreall@cshl.edu
 Date: 2022-09
@@ -516,7 +516,7 @@ def main(cmdl):
     outdir = args.outdir
     matrix_folder = args.matrix_folder
     
-    sys.stdout.write('Launching Clippings_count_miRNAs... \n')
+    sys.stdout.write('Launching count_miRNAs... \n')
 
     if os.path.isdir(outdir):
         # overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')

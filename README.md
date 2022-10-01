@@ -19,7 +19,7 @@ Count mapped reads harboring TSO sub-sequene.
 (your_env) $ python deg_count_with_UMIs.py [path_to_bam_file] --TSSgtf [path_to_gtf/genes.gtf] --cores 10 --outdir [output_folder_name] --mtx [True/False]
 ```
 
-### 2. Clippings_count_miRNAs.py
+### 2. count_miRNAs.py
 Counts all TSO reads aligning precisely to a predicted 3' Drosha processing site for annotated miRNAs.
 Reads are counted if they contain a unique, corrected UMI-barcode pair produced by Cellranger.
 Requires a GFF3-formatted miRNA annotation file downloaded from miRBase. Currently tested organisms:
@@ -28,7 +28,7 @@ Requires a GFF3-formatted miRNA annotation file downloaded from miRBase. Current
 * Fruit Fly (dm6)
 
 ```
-(your_env) $ python Clippings_count_miRNAs.py [path_to_bam_file] [path_to_gff3] \
+(your_env) $ python count_miRNAs.py [path_to_bam_file] [path_to_gff3] \
   --matrix_folder [folder name] \ # Required: Cellranger Gene Expression Matrix Folder to merge with miRNA counts
   --outdir [output_folder_name] \ # Optional: Output folder to store files. Default: 'Clippings_outs'
   --write_bam_output [True/False] # Optional: write miRNA clippings to BAM file

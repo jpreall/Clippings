@@ -22,7 +22,7 @@ Count mapped reads harboring TSO sub-sequene.
 ### 2. Clippings_count_miRNAs.py
 This will output: 
 ```
-  \[SAMPLE\]_sorted_miRNA_reads.bam
+  [SAMPLE]_sorted_miRNA_reads.bam
   miRNA_read_details.csv.gz
   miRNA_count_matrix.csv.gz
   TSO_distances_to_Drosha.csv.gz

@@ -5,7 +5,7 @@ Clippings is a set of Python tools that combs through 10X Genomics scRNA-seq ali
   1. RNA degradation by endonucleases, e.g. during apoptosis
   2. microRNA 3' Drosha-processing products, indicating ongoing microRNA biogenesis
   
-New functionality may be added over time, including alternative TSS utilization and quantification of bona-fide transposable element transcripts, as reported by [Linker et al](https://genome.cshlp.org/content/early/2020/10/21/gr.262196.120)
+New functionality may be added over time, including alternative TSS utilization and quantification of bona-fide transposable element transcripts, as reported by [Linker et al.](https://genome.cshlp.org/content/early/2020/10/21/gr.262196.120)
 
 ## Overview
 

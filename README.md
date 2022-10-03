@@ -22,8 +22,14 @@ Produces a cell x gene count matrix of all truncated RNAs in the dataset. Candid
 
 Outputs: Cellranger MTX-formatted matrix (barcodes.tsv.gz, features.tsv.gz, matrix.mtx.gz), HDF5-formatted matrix (raw_clipped_features_matrix.h5), and a few other ancillary outputs (dictionary.txt, jsonFolder) 
 ```
-# Highly recommend user to submit as a job if using HPC in order to prevent over overuse of resources. This should take 5-10 minutes.
-(your_env) $ python deg_count_with_UMIs.py [path_to_bam_file] --TSSgtf [path_to_gtf/genes.gtf] --cores 10 --outdir [output_folder_name] --mtx [True/False]
+# Usage:
+(your_env) $ python deg_count_with_UMIs.py [path_to_bam_file] \
+  --TSSgtf [path_to_gtf/genes.gtf] \  # path to GTF file used by Cellranger to map/annotate data originally 
+  --cores 10 \                        # Number of threads used for parallel processing
+  --outdir [output_folder_name] \     # Optional: Output folder. Default: 'deg_raw_clipped'
+  --mtx [True/False]                  # Optional: Produces MTX-formatted degraded count matrix in addition to HDF5 matrix
+  
+# This should take 5-10 minutes for a standard 10X Genomics sample, depending on available resources.
 ```
 
 ### 2. count_miRNAs.py
@@ -35,6 +41,7 @@ Requires a GFF3-formatted miRNA annotation file downloaded from miRBase. Current
 * Fruit Fly (dm6)
 
 ```
+# Usage:
 (your_env) $ python count_miRNAs.py [path_to_bam_file] [path_to_gff3] \
   --matrix_folder [folder name] \ # Required: Cellranger Gene Expression Matrix Folder to merge with miRNA counts
   --outdir [output_folder_name] \ # Optional: Output folder to store files. Default: 'Clippings_outs'
@@ -58,5 +65,6 @@ This module writes a new BAM file with only the TSO-containing reads. This might
 Supports multiple CPU threads to speed up processing. 
 ![Clippings Logo](files/Clippings_IGV.png)   
 ```
+# Usage: 
 (your_env) $ python write_tso_bam.py [path_to_bam_file] --threads [threads]
 ```

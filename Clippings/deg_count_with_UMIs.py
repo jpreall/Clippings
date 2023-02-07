@@ -12,30 +12,25 @@ Date: 2021-04
 import argparse
 import sys
 import pysam
-import collections
+import collections 
 import sys
 import os
 import csv
-import string
 import argparse
 import gzip
-import scipy.sparse as sp
+#import scipy.sparse as sp
 from scipy import io
 import shutil
 import numpy as np
 import h5sparse
 import h5py
 import gtfparse
-import time
-from pararead import ParaReadProcessor
-import logmuse
+from multiprocessing import Pool
+import logging
 import json
 import glob
 import os.path as path
 import pkg_resources
-import collections
-from collections import defaultdict
-
 
 def _parse_cmdl(cmdl):
     """ Define and parse command-line interface. """
@@ -66,163 +61,59 @@ def _parse_cmdl(cmdl):
     parser.add_argument('--include_introns', dest='include_introns',
                         action='store_true', help='Include intronic reads for nuclei data')
 
-    parser = logmuse.add_logging_options(parser)
     return parser.parse_args(cmdl)
 
 
-class ReadCounter(ParaReadProcessor):
-    """Create child class ReadCounter from parent ParaReadProcessor.
+def count_reads(dict_of_input):
+    """
+    Function to parallelize the downsampling by chrom
+    
+    Args:
+        dict_of_input (dict): Dictionary containing all args being passed from parse bam file, includes "args", "TSS_dict", "feature_dictionary" and "jsonPath"
+    
+    """
+    args = dict_of_input["args"]
+    with pysam.AlignmentFile(args.readsfile, "rb") as bam:
+        chroms = bam.references
+    input_things = [(chrom, dict_of_input) for chrom in chroms]
+    with Pool(int(args.cores)) as p:
+        completed_chroms = p.starmap(bam_parser_chunk, input_things)
 
-    ReadCounter contains additional arguements such as feature dictionary
-    and transcription start site dictionary.
+def parse_bam_file(args, TSS_dict, feature_dictionary):
+    """
+    Outer function to parallelize without pararead
+
+    Args:
+        args: passed in command line arguments
+        TSS_dict (dict): Dictionary of transcription start sites.
+        feature_dictionary (dict): Dictionary of gene ids and gene names.
 
     """
-
-    def __init__(self, *args, **kwargs):
-        """
-        Extension of ParaReadProcessor class.
-
-        Args:
-            *args (list): ParaReadProcessor arguments.
-            **kwargs (list): List containing additional 'features', '
-            TSSdictionary', 'write_degraded_bam_file', and 'include_introns'
-            arguments.
-
-        """
-
-        if 'features' in kwargs:
-            features = kwargs.pop('features')
-        else:
-            args = list(features)
-            features = args.pop()
-        if 'TSSdictionary' in kwargs:
-            TSSdictionary = kwargs.pop('TSSdictionary')
-        else:
-            TSSdictionary = args.pop()
-        if 'write_degraded_bam_file' in kwargs:
-            write_degraded_bam_file = kwargs.pop('write_degraded_bam_file')
-        else:
-            args = list(write_degraded_bam_file)
-            write_degraded_bam_file = args.pop()
-        if 'include_introns' in kwargs:
-            include_introns = kwargs.pop('include_introns')
-        else:
-            args = list(include_introns)
-            include_introns = args.pop()
-
-        ParaReadProcessor.__init__(self, *args, **kwargs)
-        self._features = features
-        self._TSSdictionary = TSSdictionary
-        self._write_degraded_bam_file = write_degraded_bam_file
-        self._include_introns = include_introns
-
-    def __call__(self, chromosome, _=None):
-        """For each chromosome, perform a specific action such as building the
-        degradation dictionary and writing out as a json file to be read in later.
-
-        """
-
-        # PYSAM CAN ONLY READ THROUGH A FILE ONCE. THEN YOU NEED TO RELOAD IT
-        # THEREFORE IF DOING A LOOP USING PYSAM FUNCTIONS, DOING IT A SECOND
-        # TIME WILL GIVE AN EMPTY OUTPUT
-
-        reads = self.fetch_chunk(chromosome)
-
-        deg_count_dict = bam_parser_chunk(reads, self._TSSdictionary, self._features,
-                                          self._write_degraded_bam_file, self._include_introns)
-        print('Finished running bam_parser_chunk: ', time.asctime())
-
-        with open(self._tempf(chromosome), 'w') as f:
-            #f.write("{}\t{}".format(chromosome, n_reads))
-            print(chromosome, file=f)
-            # the following might be too long of a print
-            print(dict(list(deg_count_dict.items())[0:15]), file=f)
-
-        print('Time Started for json write-out:', time.asctime())
-        # 2021.08.09 Writing out dictionary as json to then re-load and combine
-        jsonFolder = 'jsonFolder'
-        import os
-        jsonPath = os.path.join(os.getcwd(), jsonFolder)
-        # change back if necessary
-        filePath = os.path.join(jsonPath, str(chromosome)+'.json')
-        with open(filePath, 'w') as f:
-            json.dump(deg_count_dict, f)
-
-        print('Finished json write-out:', time.asctime())
-        return chromosome
+    #first make temp json folder 
+    jsonFolder = 'jsonFolder'
+    jsonPath = os.path.join(os.getcwd(), jsonFolder)
+    count_reads({"args": args, "TSS_dict": TSS_dict, "feature_dictionary": feature_dictionary, "jsonPath": jsonPath})
+    return jsonPath 
 
 
-def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_file, include_introns):
+def bam_parser_chunk(chrom, dict_of_input):
     """
     Go through every read and create a degradation dictionary of barcode and counts.
 
-    For uniquely mapped, exonic reads with tso tags, get cell barcode, gene id and
-    gene name tags. Creates a dictionary if cell barcode and degraded counts.
+    For uniquely mapped, reads with tso tags, get cell barcode, gene id and
+    gene name tags. Creates a dictionary if cell barcode and degraded counts and writes it to json.
 
     Args:
-        chunk (type): A chunk (chromosome) of sequencing reads from bam file.
-        TSS_dict (dict): Dictionary of transcription start sites.
-        feature_dictionary (dict): Dictionary of gene ids and gene names.
-        write_degraded_bam_file (bool): True to write a degraded bam file. False to not.
-        intron_introns (bool):
-
-    Returns:
-        dict: Dictionary of cell barcodes and degraded counts.
+        chrom (type): A chromosome from which we'll pull the reads from the bam file.
+        dict_of_input (dict): Dictionary containing all args being passed from parse bam file, includes "args", "TSS_dict", "feature_dictionary" and "jsonPath".
 
     """
-    def tag_reader(aln, deg_count_dict, feature_dictionary):
-        total_counts = 0
-        total_TSS_counts = 0
-        NO_UB = 0
-        # Get Cell barcode and update set
-        if aln.has_tag("CB"):
-            cell_barcode = aln.get_tag("CB")
-            if cell_barcode not in cell_barcode_set:
-                cell_barcode_set.add(cell_barcode)
-                deg_count_dict[cell_barcode] = collections.defaultdict(list)
+    args = dict_of_input['args']
+    TSS_dict = dict_of_input['TSS_dict']
+    feature_dictionary = dict_of_input['feature_dictionary']
+    jsonPath = dict_of_input['jsonPath']
 
-            # Get Gene Name and Ensembl ID, if it there is one
-            if aln.has_tag("GX"):
-                gene_id = aln.get_tag("GX")
-
-                # only take reads that unambiguously map to one gene
-                VALID_GENE = gene_id in feature_dictionary.keys()
-
-                if VALID_GENE:
-                    TSSes_for_gene = TSS_dict[gene_id]
-                    all_TSS_overlaps = set()
-
-                    for TSS in TSSes_for_gene:
-                        all_TSS_overlaps.add(aln.get_overlap(TSS-20, TSS+20))
-
-                    NOT_TSS = max(all_TSS_overlaps) < 10
-                    IS_TSS = not NOT_TSS
-
-                    if aln.has_tag("GN"):
-                        gene_name = aln.get_tag("GN")
-
-                    # keep a running tally of total gene mapping counts:
-                    total_counts += 1
-
-                    # Only take degraded RNAs
-                    CLIPPED = aln.has_tag("ts:i")
-
-                    if NOT_TSS & VALID_GENE & CLIPPED:
-                        if gene_id not in deg_count_dict[cell_barcode].keys():
-                            deg_count_dict[cell_barcode][gene_id] = set()
-
-                        if aln.has_tag("UB"):
-                            deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
-                            if write_degraded_bam_file:
-                                OUTPUT_BAM.write(aln)
-                        else:
-                            NO_UB += 1
-
-                    # keep a running tally of all TSS mapping counts:
-                    elif IS_TSS & CLIPPED & VALID_GENE:
-                        total_TSS_counts += 1
-
-        return deg_count_dict, total_counts, total_TSS_counts, NO_UB
+    write_degraded_bam_file = args.write_degraded_bam_file
 
     # Initialize dictionary to store gene-cell matrix
     deg_count_dict = collections.defaultdict(list)
@@ -232,104 +123,92 @@ def bam_parser_chunk(chunk, TSS_dict, feature_dictionary, write_degraded_bam_fil
 
     # Running tallies of gene counts for QC, debugging, and reporting purposes
     total_lines_read = 0
-    exon_count = 0
-    intron_count = 0
-    intergenic_count = 0
-    exon_intron_count = 0
+    total_counts = 0
+    total_TSS_counts = 0
 
     if type(TSS_dict) != dict:
-        print('Warning, TSS dictionary generation failed.  Exiting.')
+        logging.error('Warning, TSS dictionary generation failed.  Exiting.')
         exit(0)
 
-    #alignments = pysam.AlignmentFile(bamfile, "rb")
-
-    # need to check to see if this feature works
     if write_degraded_bam_file:
-        OUTPUT_BAM = pysam.AlignmentFile('degraded_not_TSS.bam', "wb", template=alignments)
-        print('Writing TSS-filtered degraded BAM file to degraded_not_TSS.bam')
+        alignments = pysam.AlignmentFile(args.readsfile, "rb")
+        OUTPUT_BAM = pysam.AlignmentFile(f"temp_bams/{chrom}_degraded_not_TSS.bam", "wb", template=alignments)
+        #logging.info('Writing TSS-filtered degraded BAM file to degraded_not_TSS.bam')
 
-    print('Counting degraded reads...', time.asctime())
+    logging.info(f'Counting degraded reads for {chrom}')
+    bamin = pysam.AlignmentFile(args.readsfile, "rb")
+    for aln in bamin.fetch(chrom):
+        total_lines_read += 1
+        if total_lines_read % 1e7 == 0:
+            logging.info(f'Lines read: {total_lines_read:,} on {chrom}')
+            
+        #Skip any reads without all of the tags we need
 
-    print("include_introns", include_introns)
-    print("include_introns is True", include_introns is True)
-    if include_introns:
-        print("include_introns is True", include_introns is True)
-        for aln in chunk:
-            #print("aln reached")
-            total_lines_read += 1
-            if total_lines_read % 1e7 == 0:
-                print('Lines read:', f'{total_lines_read:,}')
-            # Only consider uniquely mapped reads:
-            # if aln.mapping_quality == 255:
-                #print("Mapping quality == 255")
-            if aln.has_tag("xf:i"):
-                # if (aln.get_tag("xf:i") & 8): # working, same as original
-                # working, same as 8 after filter min_cells=1
-                if aln.get_tag("xf:i") == 17 or aln.get_tag("xf:i") == 25:
-                    # print(aln.get_tag("xf:i"))
-                    # Get both exonic and intronic reads
-                    if ((aln.get_tag("RE") == 'E') or (aln.get_tag("RE") == 'N')):
-                        #print("Exon or intron")
-                        if aln.get_tag("RE") == 'E':
-                            exon_count += 1
-                            # print("Exon")
-                        elif aln.get_tag("RE") == 'N':
-                            # print("Intron")
-                            intron_count += 1
-                        exon_intron_count += 1
-                        #print("Tag reader start")
-                        deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(
-                            aln, deg_count_dict, feature_dictionary)
-                        #print("Tag reader end")
-                    elif aln.get_tag("RE") == 'I':
-                        intergenic_count += 1
-                        # print("Intergenic")
-    else:
-        print("include_introns is False", include_introns is False)
-        for aln in chunk:
-            #print("False version aln reached")
-            total_lines_read += 1
-            if total_lines_read % 1e7 == 0:
-                print('Lines read:', f'{total_lines_read:,}')
-            # Only consider uniquely mapped reads:
-            # if aln.mapping_quality == 255:
-            if aln.has_tag("xf:i"):
-                # if (aln.get_tag("xf:i") & 8): # working, same as original
-                # working, same as 8 after filter min_cells=1
-                if aln.get_tag("xf:i") == 17 or aln.get_tag("xf:i") == 25:
-                    # print(aln.get_tag("xf:i"))
-                    # Only get exonic reads
-                    if aln.get_tag("RE") == 'E':
-                        #print("Exon only")
-                        exon_count += 1
-                        exon_intron_count += 1
-                        deg_count_dict, total_counts, total_TSS_counts, NO_UB = tag_reader(
-                            aln, deg_count_dict, feature_dictionary)
-                    elif aln.get_tag("RE") == 'N':
-                        # print("Intron")
-                        intron_count += 1
-                        exon_intron_count += 1
-                    elif aln.get_tag("RE") == 'I':
-                        # print("Intergenic")
-                        intergenic_count += 1
-    print('Total exonic: ', exon_count)
-    print('Total intronic: ', intron_count)
-    print('Total exon_intron: ', exon_intron_count)
-    print('Total intergenic: ', intergenic_count)
-    # broke for total_counts 2021.09.27 maybe because some iterations through aln do not have GN tag for gene name, thus creating an error(?)
-    #print('Total counts:', total_counts)
-    # broke: UnboundLocalError: local variable 'total_TSS_counts' referenced before assignment
-    #print('Total TSS reads (not UMI de-duplicated):', total_TSS_counts)
-    #print("Number of lines without 'UB' tag ", NO_UB)
-    time.asctime()
+        if not (aln.has_tag("CB")) & (aln.has_tag("GX")) & aln.has_tag("UB"):
+            continue
+
+        #Skip any reads that Cellranger didn't count as a UMI or possible UMI
+
+        if not (aln.get_tag("xf") == 17) | (aln.get_tag("xf") == 25):
+            continue
+
+        # Get Cell barcode and update set
+        
+        cell_barcode = aln.get_tag("CB")
+        if cell_barcode not in cell_barcode_set:
+            cell_barcode_set.add(cell_barcode)
+            deg_count_dict[cell_barcode] = collections.defaultdict(list)
+
+        # Get Gene Name and Ensembl ID, if it there is one
+        
+        gene_id = aln.get_tag("GX")
+
+        # only take reads that unambiguously map to one gene
+
+        VALID_GENE = gene_id in feature_dictionary.keys()
+
+        if not VALID_GENE:
+            continue
+    
+        TSSes_for_gene = TSS_dict[gene_id]
+        all_TSS_overlaps = set()
+
+        for TSS in TSSes_for_gene:
+            all_TSS_overlaps.add(aln.get_overlap(TSS-20, TSS+20))
+
+        NOT_TSS = max(all_TSS_overlaps) < 10
+        IS_TSS = not NOT_TSS
+
+        # keep a running tally of total gene mapping counts:
+        total_counts += 1
+
+        # Only take degraded RNAs
+        CLIPPED = aln.has_tag("ts:i")
+
+        if NOT_TSS & CLIPPED:
+            if gene_id not in deg_count_dict[cell_barcode].keys():
+                deg_count_dict[cell_barcode][gene_id] = set()
+
+            deg_count_dict[cell_barcode][gene_id].add(aln.get_tag("UB"))
+            if write_degraded_bam_file:
+                OUTPUT_BAM.write(aln)
+
+        # keep a running tally of all TSS mapping counts:
+        elif IS_TSS & CLIPPED:
+            total_TSS_counts += 1
+
     # Finally, collapse the UMI-containing sets into digital gene expression counts:
-    print("Collapsing deg_count_dict to have the number of UMI", time.asctime())
     for cell in deg_count_dict.keys():
         for gene in deg_count_dict[cell].keys():
             deg_count_dict[cell][gene] = len(deg_count_dict[cell][gene])
 
     if write_degraded_bam_file:
         OUTPUT_BAM.close()
+
+    filePath = os.path.join(jsonPath, str(chrom)+'.json')
+    with open(filePath, 'w') as f:
+        json.dump(deg_count_dict, f)
+    logging.info(f"Finished writing deg_count_dict for {chrom}")
 
     return deg_count_dict  # , feature_dictionary
 
@@ -347,7 +226,7 @@ def merge_dicts(*dicts):
 
     """
 
-    merged = defaultdict(dict)
+    merged = collections.defaultdict(dict)
 
     for d in dicts:
         for k, v in d.items():
@@ -374,7 +253,7 @@ def count_dict_to_sparse_matrix(data_dictionary, feature_dictionary):
     SHAPET = (len(features), len(barcodes))
     SHAPE = (len(barcodes), len(features))
 
-    print('Building Dictionary of counts for matrix writing...', time.asctime())
+    logging.info('Building Dictionary of counts for matrix writing...')
     for cell in data_dictionary.keys():
         bcindex = bcdict[cell]
         newcols = [featdict[gene] for gene in data_dictionary[cell].keys()]
@@ -382,7 +261,7 @@ def count_dict_to_sparse_matrix(data_dictionary, feature_dictionary):
         col.extend(newcols)
         data.extend(list(data_dictionary[cell].values()))
 
-    print('Converting to scipy sparse matrix...', time.asctime())
+    logging.info('Converting to scipy sparse matrix...')
     MATRIX = sp.csr_matrix((data, (row, col)), shape=SHAPE, dtype='int32')
 
     return MATRIX, barcodes
@@ -439,7 +318,7 @@ def write_10x_h5(data_dictionary, feature_dictionary, LIBRARY_ID=None, CHEMISTRY
 
     # Declare the output h5 file:
     outfile = 'raw_clipped_features_matrix.h5'
-    print('Writing to '+outfile)
+    logging.info('Writing to '+outfile)
 
     # Encode Cell Barcodes
     BCS = np.array(barcodes).astype('S')
@@ -452,17 +331,17 @@ def write_10x_h5(data_dictionary, feature_dictionary, LIBRARY_ID=None, CHEMISTRY
     if genome:
         GENOME = genome
     else:
-        print('No genome specified, writing attribute as unspecified_genome')
+        logging.info('No genome specified, writing attribute as unspecified_genome')
         GENOME = 'unspecified_genome'
 
     # Chemistry
     if not CHEMISTRY:
-        print('No chemistry version specified, writing attribute as unspecified_chemistry')
+        logging.info('No chemistry version specified, writing attribute as unspecified_chemistry')
         CHEMISTRY = 'unspecified_chemistry'
 
     # Sample name
     if not LIBRARY_ID:
-        print('No library ID specified, writing attribute as unknown_library')
+        logging.info('No library ID specified, writing attribute as unknown_library')
         LIBRARY_ID = 'unknown_library'
 
     # Other fields needed by Cellranger h5
@@ -470,7 +349,7 @@ def write_10x_h5(data_dictionary, feature_dictionary, LIBRARY_ID=None, CHEMISTRY
     ORIG_GEM_GROUPS = np.array([1])
 
     # Write the h5
-    print('Starting to write h5:', time.asctime())
+    logging.info('Starting to write h5:')
     with h5sparse.File(outfile, 'w') as h5f:
         h5f.create_dataset('matrix/', data=MATRIX, compression="gzip")
         h5f.close()
@@ -497,8 +376,7 @@ def get_metadata(bamfile):
     """
     Read Library ID from bam file.
     """
-    print("get pkg_resources: ", pkg_resources.resource_filename(
-        'Clippings', 'files/737K-august-2016.txt.gz'))
+    logging.info(f"get pkg_resources: {pkg_resources.resource_filename('Clippings', 'files/737K-august-2016.txt.gz')}")
     alignments = pysam.AlignmentFile(bamfile, "rb")
 
     # Need a backup if this step fails...
@@ -538,7 +416,7 @@ def fetch_barcode_whitelist(CHEMISTRY):
     WHITELIST_FILE = VALID_CHEMISTRIES[CHEMISTRY]
 
     if CHEMISTRY == 'unspecified_chemistry':
-        print('Warning, unknown chemistry detected.  Defaulting to 10X Genomics Single Cell 3\' v3')
+        logging.info('Warning, unknown chemistry detected.  Defaulting to 10X Genomics Single Cell 3\' v3')
 
     BC_WHITELIST = set()
     with gzip.open(WHITELIST_FILE, mode='rb') as f:
@@ -549,22 +427,18 @@ def fetch_barcode_whitelist(CHEMISTRY):
 
 def dict_of_TSSes(TSSgtf):
 
-    print('Reading GTF file:', TSSgtf)
-    report_time()
+    logging.info('Reading GTF file:')
     df = gtfparse.read_gtf(TSSgtf)
 
-    print('Building dictionary of valid gene_id:gene_name pairs...')
-    report_time()
+    logging.info('Building dictionary of valid gene_id:gene_name pairs...')
     feature_dictionary = df.loc[:, ['gene_id', 'gene_name']
                                 ].drop_duplicates().set_index('gene_id').to_dict()['gene_name']
 
-    print('Parsing out lines annotated as \'transcript\'...')
-    report_time()
+    logging.info('Parsing out lines annotated as \'transcript\'...')
     transcript_df = df[df['feature'] == 'transcript'].loc[:, ['gene_name', 'gene_id',
                                                               'seqname', 'start', 'end', 'strand']].set_index('gene_id').drop_duplicates()
 
-    print('Building list of valid TSSes per gene...')
-    report_time()
+    logging.info('Building list of valid TSSes per gene...')
     result = {}
     for gene_id, anno in transcript_df.iterrows():
         result[gene_id] = result.get(gene_id, set())
@@ -572,123 +446,108 @@ def dict_of_TSSes(TSSgtf):
     return result, feature_dictionary
 
 
-def report_time():
-    print('Time started:', time.asctime())
-
-
 def main(cmdl):
     """
     runner
     """
+    logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S",
+                        level=logging.INFO, force=True)
+
     # FileNotFoundError: [Errno 2] No such file or directory: '/cm/local/apps/uge/var/spool.p7444/bam08/files/3M-february-2018.txt.gz'
     FILES_PATH = path.abspath(path.join(path.dirname(__file__), "../files/"))
-    print("This is the absolute file path: ", FILES_PATH)
-    print("This is pkg_resources: ", pkg_resources.resource_filename(
+    logging.info("This is the absolute file path: "+FILES_PATH)
+    logging.info("This is pkg_resources: " + pkg_resources.resource_filename(
         'Clippings', 'files/737K-august-2016.txt.gz'))
 
-    import os
+
     args = _parse_cmdl(cmdl)
-    global _LOGGER
-    _LOGGER = logmuse.logger_via_cli(args, make_root=True)
 
     outdir = args.outdir
     genome = args.genome
     write_degraded_bam = args.write_degraded_bam_file
 
-    # if os.path.isdir(outdir):
-    #overwrite = input('\nOutput directory already exists. Overwrite? Y/N ')
-    # if overwrite.lower() == 'n':
-    #    exit(0)
-    # elif overwrite.lower() == 'y':
-    #    shutil.rmtree(outdir)
-    # Commented out above because if used as script (as it is now), there is no user input
-    #print('Output directory already exists')
     assert not os.path.isdir(outdir), "Output directory already exists"
 
     os.mkdir(outdir)
     os.chdir(outdir)
 
-    _LOGGER.debug("Run dict of TSSes")
+    logging.debug("Run dict of TSSes")
     if args.TSSgtf != None:
         TSS_dict, feature_dictionary = dict_of_TSSes(args.TSSgtf)
         #deg_count_dict, feature_dictionary = bam_parser(args.bamfile, TSS_dict, feature_dictionary, write_degraded_bam_file)
     else:
         #deg_count_dict, feature_dictionary = bam_parser_noTSS(args.bamfile)
-        print("No TSS file supplied")
+        logging.info("No TSS file supplied")
 
     # 2021.08.09 Creating directory to write out json dict
     jsonFolder = 'jsonFolder'
     jsonPath = os.path.join(os.getcwd(), jsonFolder)
     os.mkdir(jsonPath)
-    print('jsonPath: ', jsonPath)
+    logging.info('jsonPath: '+ jsonPath)
+    if write_degraded_bam:
+        bams_folder = os.path.join(os.getcwd(), "temp_bams")
+        os.mkdir(bams_folder)
+    
+    #Parallel processing of the bam file to count degraded read
+    parse_bam_file(args, TSS_dict, feature_dictionary)
+    logging.info('****MAIN STEP****: FINISHED THE READCOUNTER')
 
-    _LOGGER.debug("Creating counter")
-    counter = ReadCounter(args.readsfile, cores=args.cores,
-                          outfile=args.outdictionary, action="CountReads",
-                          TSSdictionary=TSS_dict, features=feature_dictionary,
-                          write_degraded_bam_file=write_degraded_bam, include_introns=args.include_introns)
-    print('****MAIN STEP****: FINISHED THE READCOUNTER', time.asctime())
+    if write_degraded_bam:
+        # steps to merge, sort, index and delete temporary bam files to write the degraded bam
+        logging.info("Combining Degraded Bam Files")
+        temp_bams = glob.glob(bams_folder+"/*.bam")
+        print(temp_bams[0])
+        pysam.merge(*["degraded_not_TSS_unsorted.bam"] + temp_bams)
+        logging.info("Sorting Degraded Bam File")
+        pysam.sort("-o", "degraded_not_TSS.bam", "degraded_not_TSS_unsorted.bam")
+        os.remove("degraded_not_TSS_unsorted.bam")
+        logging.info("Indexing Degraded Bam File")
+        pysam.index("degraded_not_TSS.bam")
+        [os.remove(i) for i in glob.glob(bams_folder+"/*.bam")]
+        os.rmdir(bams_folder)
+        logging.info("Degraded Bam Written")
 
-    _LOGGER.debug("Registering files")
-    counter.register_files()
-    print('****MAIN STEP****: FINISHED REGISTERING', time.asctime())
-
-    _LOGGER.info("Counting reads: {}".format(args.readsfile))
-    good_chromosomes = counter.run()
-    print('****MAIN STEP****: FINISHED counter.run()', time.asctime())
-
-    _LOGGER.info("Collecting read counts: {}".format(args.outdictionary))
-    counter.combine(good_chromosomes, chrom_sep="\n")
-    print('****MAIN STEP****: FINISHED COMBINING', time.asctime())
-
-    print('Time ended:', time.asctime())
+    # Merge the jsons together into one dictionary 
     jsonFiles = glob.glob('./jsonFolder/*.json')
-    print('jsonFiles: ', jsonFiles)
 
-    # load dictionaries given name
-    print('Load json Dicts time started:', time.asctime())
+    logging.info('Load json Dicts')
     jsonDictsList = []
     for json_entry in jsonFiles:
         with open(json_entry) as file:
             jsonDict = json.load(file)
         jsonDictsList.append(jsonDict)
-    print('Finish load json Dicts time ended:', time.asctime())
+    logging.info('Finished load json Dicts')
 
-    print('Merge dictionaries time started:', time.asctime())
+    logging.info('Merge dictionaries')
     mergedDict = merge_dicts(*jsonDictsList)
-    # print(dict(list(mergedDict.items())[0:15]))
-    print('Merge dictionaries time ended:', time.asctime())
+    [os.remove(i) for i in jsonFiles]
+    os.rmdir("jsonFolder")
 
-    print('Gathering metadata from bam file...')
-    print('Time started:', time.asctime())
+    logging.info('Gathering metadata from bam file...')
     CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.readsfile)
 
     # write 10X mtx format
     if args.mtx:
         try:
-            print('Writing 10X-formatted mtx directory...', time.asctime())
+            logging.info('Writing 10X-formatted mtx directory...')
             write_10_mtx(mergedDict, feature_dictionary)
 
         except IOError:
-            print("I/O error")
-    #print('Writing 10X-formatted mtx directory...', time.asctime())
-    #write_10_mtx(mergedDict, feature_dictionary)
+            logging.error("I/O error")
 
-    # write 10X h5 format
-    # try:
-    #    print('Writing 10X-formatted h5 file...', time.asctime())
-    #    write_10x_h5(mergedDict, feature_dictionary, outdir, LIBRARY_ID, CHEMISTRY, genome=genome)
-    # except IOError:
-    #    print("I/O error")
-    print('Writing 10X-formatted h5 file...', time.asctime())
+    logging.info('Writing 10X-formatted h5 file...')
     write_10x_h5(mergedDict, feature_dictionary, LIBRARY_ID, CHEMISTRY, genome=genome)
 
-    print('Done!', time.asctime())
+    logging.info('Done!')
 
 
 if __name__ == "__main__":
     # Override sys.argv
     #sys.argv = ['deg_count_with_UMIs.py', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_H_neg/outs/sorted_subsampledBAM.bam',
     #            '--TSSgtf', '/mnt/grid/scc/data/CellRanger/references/refdata-gex-GRCh38-2020-A/genes/genes.gtf',
-    #            '--outdir', 'testing_feb25', '--mtx', 'True']
+    #            '--outdir', 'testing_feb25', '--mtx', 'True'] 
+
     main(sys.argv[1:])
+
+

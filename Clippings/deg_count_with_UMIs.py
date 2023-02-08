@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# $ -cwd
-# $ -v PATH,LD_LIBRARY_PATH
 """
 Count mapped reads harboring TSO sub-sequene
 Input:
@@ -17,10 +14,11 @@ import sys
 import os
 import csv
 import argparse
+import csv
 import gzip
+import shutil
 #import scipy.sparse as sp
 from scipy import io
-import shutil
 import numpy as np
 import h5sparse
 import h5py

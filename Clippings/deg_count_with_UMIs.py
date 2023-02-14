@@ -13,8 +13,6 @@ import collections
 import sys
 import os
 import csv
-import argparse
-import csv
 import gzip
 import shutil
 #import scipy.sparse as sp
@@ -41,11 +39,14 @@ def _parse_cmdl(cmdl):
     parser.add_argument(
         "readsfile", help="Path to sequencing reads file (bam file).")
 
-    parser.add_argument(
-        "-D", "--outdictionary", help="Path to output dictionary.", default="dictionary.txt")
+    #parser.add_argument(
+    #    "-D", "--outdictionary", help="Path to output dictionary.", default="dictionary.txt")
 
     parser.add_argument(
         "-C", "--cores", default=10, help="Number of cores.")
+    
+    parser.add_argument(
+        "-matrix_folder", "--matrix_folder", required=True, help='10x Genomics matrix folder (raw or filtered) to concatenate miRNAs into')
 
     parser.add_argument(
         "-TSS", "--TSSgtf", help="Path to gtf file.")
@@ -53,11 +54,8 @@ def _parse_cmdl(cmdl):
     parser.add_argument('--outdir', dest='outdir', help='Output folder', default="deg_raw_clipped")
     parser.add_argument('--genome', dest='genome',
                         help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
-    parser.add_argument('--mtx', dest='mtx', help='Write output in 10X mtx format', default=False)
-    parser.add_argument('--write_degraded_bam_file', dest='write_degraded_bam_file',
+    parser.add_argument('--write_bam_output', dest='write_degraded_bam_file',
                         help='Writes all TSS filtered reads to a file called degraded_not_TSS.bam in parent directory', default=False)
-    parser.add_argument('--include_introns', dest='include_introns',
-                        action='store_true', help='Include intronic reads for nuclei data')
 
     return parser.parse_args(cmdl)
 
@@ -126,6 +124,7 @@ def bam_parser_chunk(chrom, dict_of_input):
 
     if type(TSS_dict) != dict:
         logging.error('Warning, TSS dictionary generation failed.  Exiting.')
+        # should probably be exit(1)
         exit(0)
 
     if write_degraded_bam_file:
@@ -133,7 +132,7 @@ def bam_parser_chunk(chrom, dict_of_input):
         OUTPUT_BAM = pysam.AlignmentFile(f"temp_bams/{chrom}_degraded_not_TSS.bam", "wb", template=alignments)
         #logging.info('Writing TSS-filtered degraded BAM file to degraded_not_TSS.bam')
 
-    logging.info(f'Counting degraded reads for {chrom}')
+    #logging.info(f'Counting degraded reads for {chrom}')
     bamin = pysam.AlignmentFile(args.readsfile, "rb")
     for aln in bamin.fetch(chrom):
         total_lines_read += 1
@@ -518,7 +517,13 @@ def main(cmdl):
     logging.info('Finished load json Dicts')
 
     logging.info('Merge dictionaries')
-    mergedDict = merge_dicts(*jsonDictsList)
+    merged_unfiltered_Dict = merge_dicts(*jsonDictsList)
+
+    #filtering to match supplied feature matrix, then cleaning up jsonFolder
+    with gzip.open(args.matrix_folder+"/barcodes.tsv.gz") as f:
+        raw_barcodes = f.readlines()
+    barcode_list_from_matrix = [str(i).replace("\\n'", "").replace("b'", "") for i in raw_barcodes]
+    mergedDict = {i:merged_unfiltered_Dict.get(i, collections.defaultdict(list)) for i in barcode_list_from_matrix}
     [os.remove(i) for i in jsonFiles]
     os.rmdir("jsonFolder")
 
@@ -526,13 +531,12 @@ def main(cmdl):
     CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.readsfile)
 
     # write 10X mtx format
-    if args.mtx:
-        try:
-            logging.info('Writing 10X-formatted mtx directory...')
-            write_10_mtx(mergedDict, feature_dictionary)
+    try:
+        logging.info('Writing 10X-formatted mtx directory...')
+        write_10_mtx(mergedDict, feature_dictionary)
 
-        except IOError:
-            logging.error("I/O error")
+    except IOError:
+        logging.error("I/O error")
 
     logging.info('Writing 10X-formatted h5 file...')
     write_10x_h5(mergedDict, feature_dictionary, LIBRARY_ID, CHEMISTRY, genome=genome)
@@ -541,11 +545,6 @@ def main(cmdl):
 
 
 if __name__ == "__main__":
-    # Override sys.argv
-    #sys.argv = ['deg_count_with_UMIs.py', '/mnt/grid/scc/data/Preall/Preall_CR01/count/Preall_CR01_H_neg/outs/sorted_subsampledBAM.bam',
-    #            '--TSSgtf', '/mnt/grid/scc/data/CellRanger/references/refdata-gex-GRCh38-2020-A/genes/genes.gtf',
-    #            '--outdir', 'testing_feb25', '--mtx', 'True'] 
-
     main(sys.argv[1:])
 
 

@@ -52,7 +52,7 @@ def main():
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO, force=True)
     
-    logging.info(f"Args: {''.join([' ' + i + ' ' + z for i,z in args.__dict__.items()])}")
+    logging.info(f"Args: {''.join([' ' + str(i) + ' ' + str(z) for i,z in args.__dict__.items()])}")
 
 # Handle different types of cellranger outs folders and check to make sure they are complete
 

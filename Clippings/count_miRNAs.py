@@ -87,7 +87,7 @@ def read_mirbase_gff3(file):
         df,
         pd.concat(
             pd.DataFrame(item, index=[idx]) 
-            for idx, item in split_attributes.iteritems()
+            for idx, item in split_attributes.items()
         ).fillna('None')
         ], 
         axis=1).drop(columns='attributes')
@@ -163,7 +163,7 @@ def make_Drosha_coord_dict(miRNA_anno_df, BAM):
     threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$', re.IGNORECASE)].copy()
     
     # De-duplicate any miRNAs with the same mature name, if they come from different parents
-    for idx, count in threep.groupby('Name').cumcount().iteritems():
+    for idx, count in threep.groupby('Name').cumcount().items():
         if count != 0:
             threep.loc[idx,'Name'] = threep.loc[idx,'Name'].replace('-3p',f'.{count}-3p')
 

@@ -52,7 +52,7 @@ def main():
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO, force=True)
     
-    logging.info(f"Args: {args}")
+    logging.info(f"Args: {''.join([' ' + i + ' ' + z for i,z in args.__dict__.items()])}")
 
 # Handle different types of cellranger outs folders and check to make sure they are complete
 
@@ -60,18 +60,21 @@ def main():
     cellranger_folder_raw = str(args.CRouts)+"/raw_feature_bc_matrix/"
 
     not_10x_folder_error = """Not a proper 10x outs folder. 
-                      A 10x outs folder must include one bam file labelled possorted_genome_bam.bam or
-                        a contain a single bam file of the form sample_name_possorted_genome_bam.bam
-                        with all other files having the same prefix and a raw matrix directory. 
-                        If the raw matrix is tarballed unpack before running Clippings"""
+                      A 10x outs folder must include one bam file labelled possorted_genome_bam.bam and 
+                      a raw matrix directory or contain a single bam file of the form sample_name_possorted_genome_bam.bam
+                      and a raw matrix directory with the same prefix. If the raw matrix is tarballed unpack before running Clippings"""
 
     cellranger_folder_bam = str(args.CRouts)+"/possorted_genome_bam.bam"
     cellranger_multi_folder_bam = str(args.CRouts)+"/sample_alignments.bam"
     cellranger_folder_raw = str(args.CRouts)+"/raw_feature_bc_matrix/"
     cellranger_multi_folder_filtered = str(args.CRouts)+"/sample_feature_bc_matrix/"
 
-    # Check if the "possorted_genome_bam.bam" file exists
-    if not os.path.isfile(cellranger_folder_bam):
+    # Check if it is a multi cell ranger outs folder, or if "possorted_genome_bam.bam" file exists
+    if (os.path.isfile(cellranger_multi_folder_bam)) &  (os.path.isdir(cellranger_multi_folder_filtered)):
+        cellranger_folder_bam = cellranger_multi_folder_bam
+        cellranger_folder_raw = cellranger_multi_folder_filtered
+        logging.info("This is a Cell Ranger Multi Directory")
+    elif not os.path.isfile(cellranger_folder_bam):
         # Check if there is only one file in the directory with the pattern "*possorted_genome_bam.bam"
         bam_files = glob.glob(str(args.CRouts) + "/*possorted_genome_bam.bam")
         if len(bam_files) == 1:
@@ -81,13 +84,10 @@ def main():
             # Log error and exit program
             logging.error(not_10x_folder_error)
             raise SystemExit(1)
-    elif (os.path.isfile(cellranger_multi_folder_bam)) &  (os.path.isdir(cellranger_multi_folder_filtered)):
-        cellranger_folder_bam = cellranger_multi_folder_bam
-        cellranger_folder_raw = cellranger_multi_folder_filtered
-        logging.info("This is a Cell Ranger Multi Directory")
-    else:
-        logging.error(not_10x_folder_error)
-        raise SystemExit(1)
+
+    #else:
+    #    logging.error(not_10x_folder_error)
+    #   raise SystemExit(1)
 
     # Check if the "raw_feature_bc_matrix" directory exists
     if not os.path.isdir(cellranger_folder_raw):

@@ -346,7 +346,7 @@ def write_10x_h5(data_dictionary, feature_dictionary, LIBRARY_ID=None, CHEMISTRY
     ORIG_GEM_GROUPS = np.array([1])
 
     # Write the h5
-    logging.info('Starting to write h5:')
+    logging.info('Starting to write h5')
     with h5sparse.File(outfile, 'w') as h5f:
         h5f.create_dataset('matrix/', data=MATRIX, compression="gzip")
         h5f.close()
@@ -453,9 +453,9 @@ def main(cmdl):
 
     # FileNotFoundError: [Errno 2] No such file or directory: '/cm/local/apps/uge/var/spool.p7444/bam08/files/3M-february-2018.txt.gz'
     FILES_PATH = path.abspath(path.join(path.dirname(__file__), "../files/"))
-    logging.info("This is the absolute file path: "+FILES_PATH)
-    logging.info("This is pkg_resources: " + pkg_resources.resource_filename(
-        'Clippings', 'files/737K-august-2016.txt.gz'))
+    #logging.info("This is the absolute file path: "+FILES_PATH)
+    #logging.info("This is pkg_resources: " + pkg_resources.resource_filename(
+    #    'Clippings', 'files/737K-august-2016.txt.gz'))
 
 
     args = _parse_cmdl(cmdl)
@@ -488,7 +488,7 @@ def main(cmdl):
     
     #Parallel processing of the bam file to count degraded read
     parse_bam_file(args, TSS_dict, feature_dictionary)
-    logging.info('****MAIN STEP****: FINISHED THE READCOUNTER')
+    logging.info('****MAIN STEP****: FINISHED PARSING BAM')
 
     if write_degraded_bam:
         # steps to merge, sort, index and delete temporary bam files to write the degraded bam

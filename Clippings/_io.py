@@ -434,3 +434,71 @@ def write_cellranger_h5(
         f.attrs['original_gem_groups'] = ORIG_GEM_GROUPS
         f.attrs['version'] = 2
         f.close()
+
+def read_table(file, is_gzip=False, delimiter=None):
+    """
+    Avoids dependency on Pandas, but this is probably dumb and overcautious
+    """
+    import gzip
+    
+    file_types = {'tsv':'\t','csv':','}
+    for suffix in file_types:
+        if suffix in file:
+            delimiter = file_types[suffix]
+            
+    if file.endswith('.gz'):
+        is_gzip = True
+
+    result = []
+
+    if is_gzip:
+        f = gzip.open(file, 'r')
+    else:
+        f = open(file, 'r')
+
+    try:
+        for line in f:
+            if isinstance(line, bytes):
+                line = line.decode("utf-8")
+            line = line.rstrip()
+            if line:
+                result.append(line.split(delimiter))
+    finally:
+        f.close()
+
+    return result 
+
+def layer_deg_and_miRNA_matrices(
+    outdir, # Global output directory
+    MATRIX, # Degradation matrix
+    barcodes, # Full list of raw barcodes, from degradation counting step
+    ):
+    """
+    Combine miRNA and degradation matrices to produce a unified degradation matrix with 
+    0-counts for all miRNA gene entries
+
+    MATRIX: scipy.sparse.csr_matrix of degradation counts
+    barcodes: sorted list of droplet barcodes
+    """
+    from scipy import sparse
+
+    # Step 1: Read in miRNA features file,
+    miRNA_features_file = os.path.join(outdir,'miRNA','feature_bc_matrix_with_miRNAs','features.tsv.gz')
+    all_features = read_table(miRNA_features_file)
+
+    # Step 2: create matrix of zeros of shape: (#miRNAs x #Barcodes) (or vice versa????)
+    N_NEWROWS = len(all_features) - MATRIX.shape[1]
+
+    MIRNA_COUNTS_FILL = sparse.csr_matrix(
+        np.zeros(
+            [len(barcodes),N_NEWROWS]
+            )
+        ).astype('int32')
+
+    # Step 4: stack deg and miRNA matrices
+    COMBINED_DEG_MATRIX = sparse.hstack(
+        [MATRIX,MIRNA_COUNTS_FILL],
+        format='csr',
+        ).astype('int32')
+
+    return COMBINED_DEG_MATRIX, all_features

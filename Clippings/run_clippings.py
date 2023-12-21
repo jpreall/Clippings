@@ -8,6 +8,8 @@ import os
 import logging
 import glob
 import datetime
+import pkg_resources
+
 
 from Clippings.count_miRNAs import main as count_miRNAs
 from Clippings.deg_count_with_UMIs import main as deg_count_with_UMIs
@@ -105,6 +107,10 @@ def main():
             args.outdir = new_outdir
             logging.info(f"Outdir exists writing to {new_outdir}")
     os.mkdir(args.outdir)
+
+    #locate Clippings supplied gff3s and make dict of genome with absolute paths
+    
+
 
     #miRNA relevant arguments -fixing any that need to be replaced before launching
     miRNA_relevant = {x:i for x,i in args.__dict__.items() if x in ["outdir", "write_bam_output"]}

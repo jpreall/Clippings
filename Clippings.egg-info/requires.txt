@@ -1,0 +1,14 @@
+numpy
+pandas
+scanpy
+matplotlib
+scipy
+seaborn
+pysam
+argparse
+h5py
+h5sparse
+gtfparse
+anndata
+pararead
+logmuse

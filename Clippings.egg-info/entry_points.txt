@@ -1,0 +1,2 @@
+[console_scripts]
+Clippings = Clippings.run_clippings: main

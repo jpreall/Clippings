@@ -28,6 +28,11 @@ import glob
 import os.path as path
 import pkg_resources
 
+
+#import Clippings helper functions
+from Clippings._io import write_10x_h5 
+from Clippings._io import layer_deg_and_miRNA_matrices
+
 def _parse_cmdl(cmdl):
     """ Define and parse command-line interface. """
 
@@ -55,7 +60,7 @@ def _parse_cmdl(cmdl):
     parser.add_argument('--genome', dest='genome',
                         help='Genome version to record in h5 file. eg. \'hg38\' or \'mm10\'', default=None)
     parser.add_argument('--write_bam_output', dest='write_degraded_bam_file',
-                        help='Writes all TSS filtered reads to a file called degraded_not_TSS.bam in parent directory', default=False)
+                        help='Writes all TSS filtered reads to a file called degraded_not_TSS.bam in parent directory', default=False, type=lambda x: (str(x).lower() == 'true'))
 
     return parser.parse_args(cmdl)
 
@@ -264,14 +269,14 @@ def count_dict_to_sparse_matrix(data_dictionary, feature_dictionary):
     return MATRIX, barcodes
 
 
-def write_10_mtx(data_dictionary, feature_dictionary):
+def write_10_mtx(MATRIX, barcodes, features):
     """
     Check to make sure this feature works
     write degraded counts to mtx format
     """
 
     # Prepare the matrix and cell barcodes
-    MATRIX, barcodes = count_dict_to_sparse_matrix(data_dictionary, feature_dictionary)
+   #MATRIX, barcodes = count_dict_to_sparse_matrix(data_dictionary, feature_dictionary)
 
     # write barcodes.tsv.gz
     #barcodes_file = gzip.open(os.path.join(output_folder,'barcodes.tsv.gz'), 'wt')
@@ -282,12 +287,12 @@ def write_10_mtx(data_dictionary, feature_dictionary):
     barcodes_file.close()
 
     # write features.tsv.gz
-    features = list(feature_dictionary.keys())
+    #features = list(feature_dictionary.keys())
     #features_file = gzip.open(os.path.join(output_folder,'features.tsv.gz'), 'wt')
     features_file = gzip.open('features.tsv.gz', 'wt')
     writer = csv.writer(features_file, delimiter='\t')
-    for line in feature_dictionary:
-        writer.writerow([line, feature_dictionary[line], 'Gene Expression'])
+    for line in features:
+        writer.writerow([line, features[line], 'Gene Expression'])
     features_file.close()
 
     # Write the matrix
@@ -304,69 +309,69 @@ def write_10_mtx(data_dictionary, feature_dictionary):
     os.remove('matrix.mtx')
 
 
-def write_10x_h5(data_dictionary, feature_dictionary, LIBRARY_ID=None, CHEMISTRY=None, genome=None):
-    """
-    write degraded counts to h5 format
-    """
-    # Prepare the matrix and cell barcodes
-    MATRIX, barcodes = count_dict_to_sparse_matrix(data_dictionary, feature_dictionary)
-    SHAPET = (len(feature_dictionary.keys()), len(barcodes))
-    SHAPE = (len(barcodes), len(feature_dictionary.keys()))
+# def write_10x_h5(data_dictionary, feature_dictionary, LIBRARY_ID=None, CHEMISTRY=None, genome=None):
+#     """
+#     write degraded counts to h5 format
+#     """
+#     # Prepare the matrix and cell barcodes
+#     MATRIX, barcodes = count_dict_to_sparse_matrix(data_dictionary, feature_dictionary)
+#     SHAPET = (len(feature_dictionary.keys()), len(barcodes))
+#     SHAPE = (len(barcodes), len(feature_dictionary.keys()))
 
-    # Declare the output h5 file:
-    outfile = 'raw_clipped_features_matrix.h5'
-    logging.info('Writing to '+outfile)
+#     # Declare the output h5 file:
+#     outfile = 'raw_clipped_features_matrix.h5'
+#     logging.info('Writing to '+outfile)
 
-    # Encode Cell Barcodes
-    BCS = np.array(barcodes).astype('S')
+#     # Encode Cell Barcodes
+#     BCS = np.array(barcodes).astype('S')
 
-    # Encode Features
-    FEATURES = np.array(list(feature_dictionary.values())).astype('S')
-    FEATURE_IDS = np.array(list(feature_dictionary.keys())).astype('S')
+#     # Encode Features
+#     FEATURES = np.array(list(feature_dictionary.values())).astype('S')
+#     FEATURE_IDS = np.array(list(feature_dictionary.keys())).astype('S')
 
-    # May want to write a genome detection module in the future
-    if genome:
-        GENOME = genome
-    else:
-        logging.info('No genome specified, writing attribute as unspecified_genome')
-        GENOME = 'unspecified_genome'
+#     # May want to write a genome detection module in the future
+#     if genome:
+#         GENOME = genome
+#     else:
+#         logging.info('No genome specified, writing attribute as unspecified_genome')
+#         GENOME = 'unspecified_genome'
 
-    # Chemistry
-    if not CHEMISTRY:
-        logging.info('No chemistry version specified, writing attribute as unspecified_chemistry')
-        CHEMISTRY = 'unspecified_chemistry'
+#     # Chemistry
+#     if not CHEMISTRY:
+#         logging.info('No chemistry version specified, writing attribute as unspecified_chemistry')
+#         CHEMISTRY = 'unspecified_chemistry'
 
-    # Sample name
-    if not LIBRARY_ID:
-        logging.info('No library ID specified, writing attribute as unknown_library')
-        LIBRARY_ID = 'unknown_library'
+#     # Sample name
+#     if not LIBRARY_ID:
+#         logging.info('No library ID specified, writing attribute as unknown_library')
+#         LIBRARY_ID = 'unknown_library'
 
-    # Other fields needed by Cellranger h5
-    all_tag_keys = np.array([b'genome'])
-    ORIG_GEM_GROUPS = np.array([1])
+#     # Other fields needed by Cellranger h5
+#     all_tag_keys = np.array([b'genome'])
+#     ORIG_GEM_GROUPS = np.array([1])
 
-    # Write the h5
-    logging.info('Starting to write h5')
-    with h5sparse.File(outfile, 'w') as h5f:
-        h5f.create_dataset('matrix/', data=MATRIX, compression="gzip")
-        h5f.close()
+#     # Write the h5
+#     logging.info('Starting to write h5')
+#     with h5sparse.File(outfile, 'w') as h5f:
+#         h5f.create_dataset('matrix/', data=MATRIX, compression="gzip")
+#         h5f.close()
 
-    with h5py.File(outfile, 'r+') as f:
-        f.create_dataset('matrix/barcodes', data=BCS)
-        f.create_dataset('matrix/shape', (2,), dtype='int32', data=SHAPET)
-        features = f.create_group('matrix/features')
-        features.create_dataset('_all_tag_keys', (1,), 'S6', data=all_tag_keys)
-        features.create_dataset('feature_type', data=np.array([b'Gene Expression'] * SHAPET[0]))
-        features.create_dataset('genome', data=np.array([GENOME.encode()] * SHAPET[0]))
-        features.create_dataset('id', data=FEATURE_IDS)
-        features.create_dataset('name', data=FEATURES)
+#     with h5py.File(outfile, 'r+') as f:
+#         f.create_dataset('matrix/barcodes', data=BCS)
+#         f.create_dataset('matrix/shape', (2,), dtype='int32', data=SHAPET)
+#         features = f.create_group('matrix/features')
+#         features.create_dataset('_all_tag_keys', (1,), 'S6', data=all_tag_keys)
+#         features.create_dataset('feature_type', data=np.array([b'Gene Expression'] * SHAPET[0]))
+#         features.create_dataset('genome', data=np.array([GENOME.encode()] * SHAPET[0]))
+#         features.create_dataset('id', data=FEATURE_IDS)
+#         features.create_dataset('name', data=FEATURES)
 
-        f.attrs['chemistry_description'] = CHEMISTRY.encode()
-        f.attrs['filetype'] = 'matrix'
-        f.attrs['library_ids'] = LIBRARY_ID.encode()
-        f.attrs['original_gem_groups'] = ORIG_GEM_GROUPS
-        f.attrs['version'] = 2
-        f.close()
+#         f.attrs['chemistry_description'] = CHEMISTRY.encode()
+#         f.attrs['filetype'] = 'matrix'
+#         f.attrs['library_ids'] = LIBRARY_ID.encode()
+#         f.attrs['original_gem_groups'] = ORIG_GEM_GROUPS
+#         f.attrs['version'] = 2
+#         f.close()
 
 
 def get_metadata(bamfile):
@@ -528,18 +533,34 @@ def main(cmdl):
     os.rmdir("jsonFolder")
 
     logging.info('Gathering metadata from bam file...')
+
+    #print(feature_dictionary)
+
     CHEMISTRY, LIBRARY_ID, BC_WHITELIST = get_metadata(args.readsfile)
+    #write to matrix to prepare to write out to h5 and/or mtx 
+    MATRIX, barcodes = count_dict_to_sparse_matrix(mergedDict, feature_dictionary)
+    global_outdir = str(os.getcwd()).replace("/degradation", "")
+    #if also using miRNA functions make a matrix which include the miRNAs as features so they can be layered by scanpy
+    if os.path.exists(os.path.join(global_outdir,'miRNA','feature_bc_matrix_with_miRNAs','features.tsv.gz')):
+        logging.info("Adding miRNAs to matrix")
+        COMBINED_DEG_MATRIX, all_features = layer_deg_and_miRNA_matrices(global_outdir,
+                                                                         MATRIX,
+                                                                         barcodes)
+        all_feat_dict = {x[0]: x[1] for x in all_features}
+        print(all_feat_dict)
+        write_10_mtx(COMBINED_DEG_MATRIX.T, barcodes, all_feat_dict)
+    else:
+        # write 10X mtx format
+        try:
+            logging.info('Writing 10X-formatted mtx directory...')
+            MATRIX, barcodes = count_dict_to_sparse_matrix(mergedDict, feature_dictionary)
+            write_10_mtx(MATRIX, barcodes, feature_dictionary)
 
-    # write 10X mtx format
-    try:
-        logging.info('Writing 10X-formatted mtx directory...')
-        write_10_mtx(mergedDict, feature_dictionary)
+        except IOError:
+            logging.error("I/O error")
 
-    except IOError:
-        logging.error("I/O error")
-
-    logging.info('Writing 10X-formatted h5 file...')
-    write_10x_h5(mergedDict, feature_dictionary, LIBRARY_ID, CHEMISTRY, genome=genome)
+    #logging.info('Writing 10X-formatted h5 file...')
+    #write_10x_h5(mergedDict, feature_dictionary, LIBRARY_ID, CHEMISTRY, genome=genome)
 
     logging.info('Done!')
 

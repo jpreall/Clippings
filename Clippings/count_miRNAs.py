@@ -604,7 +604,7 @@ def _parse_cmdl(cmdl):
     parser.add_argument('--matrix_folder', dest='matrix_folder', required=True,
                         help='10x Genomics matrix folder (raw or filtered) to concatenate miRNAs into')
     parser.add_argument('--write_bam_output',dest='write_bam_output',required=False, default=True,
-                        help = 'Write candidate miRNA processing product reads to BAM output')
+                        help = 'Write candidate miRNA processing product reads to BAM output', type=lambda x: (str(x).lower() == 'true'))
     return parser.parse_args(cmdl)
 
 if __name__ == '__main__':

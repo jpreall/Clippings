@@ -488,11 +488,10 @@ def layer_deg_and_miRNA_matrices(
 
     # Step 2: create matrix of zeros of shape: (#miRNAs x #Barcodes) (or vice versa????)
     N_NEWROWS = len(all_features) - MATRIX.shape[1]
-
+    print(N_NEWROWS)
     MIRNA_COUNTS_FILL = sparse.csr_matrix(
         np.zeros(
-            [len(barcodes),N_NEWROWS]
-            )
+        [len(barcodes),N_NEWROWS])
         ).astype('int32')
 
     # Step 4: stack deg and miRNA matrices

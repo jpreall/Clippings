@@ -37,8 +37,6 @@ __all__ = [
     'read_mirbase_gff3', 
     'fix_chromnames',
     'make_Drosha_coord_dict',
-    'get_sample_name_from_bam_header',
-    'get_bam_readlength',
     'get_bam_features',
     'count_miRNAs',
     'read_10x_mtx',
@@ -154,59 +152,42 @@ def make_Drosha_coord_dict(miRNA_anno_df, BAM):
     """
     chromnames_in_bam = set(pysam.AlignmentFile(BAM, "rb").header.references)
 
+    # added in re.IGNORCASES here and commented out duplicate below:
     try:
-        threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$')]
+        threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$', re.IGNORECASE)]
     except KeyError:
-        threep = miRNA_anno_df[miRNA_anno_df['gene_name'].str.match('.*3p$')]
-        
-    threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$', re.IGNORECASE)].copy()
+        threep = miRNA_anno_df[miRNA_anno_df['gene_name'].str.match('.*3p$', re.IGNORECASE)]
+    
+    # What the fuck? Why was this here just overriding the preceding try/except?
+    #threep = miRNA_anno_df[miRNA_anno_df['Name'].str.match('.*3p$', re.IGNORECASE)].copy()
     
     # De-duplicate any miRNAs with the same mature name, if they come from different parents
     for idx, count in threep.groupby('Name').cumcount().iteritems():
         if count != 0:
             threep.loc[idx,'Name'] = threep.loc[idx,'Name'].replace('-3p',f'.{count}-3p')
 
-    def Drosha_site(gff_3p_row):
-        COORD = gff_3p_row['start'] if \
+    def Drosha_crop_site(gff_3p_row):
+        Drosha_crop_coord = gff_3p_row['start'] if \
         gff_3p_row['strand'] == '-' \
         else gff_3p_row['end']
         
-        return (COORD, gff_3p_row['strand'], gff_3p_row['ID'])
+        return (Drosha_crop_coord, gff_3p_row['strand'], gff_3p_row['ID'])
 
     coord_dict = defaultdict(dict)
     for i, row in threep.iterrows():
         if row.seqname in chromnames_in_bam:
-            coord_dict[row.seqname][row.Name] = Drosha_site(row)
+            coord_dict[row.seqname][row.Name] = Drosha_crop_site(row)
     
     mi_name_dict = dict(zip(threep['Name'],threep['ID'])) 
     
     return coord_dict, mi_name_dict
-    
-    
-def get_sample_name_from_bam_header(BAMFILE):
-    alignments = pysam.AlignmentFile(BAMFILE, "rb")    
-    try: 
-        sample_name = alignments.header.get('RG')[0].get('SM')
-    except:
-        sample_name = 'UnknownSample'
-    return sample_name
-
-def get_bam_readlength(BAMFILE):
-    alignments = pysam.AlignmentFile(BAMFILE, 'rb')
-    rlens = []
-    for n, read in enumerate(alignments.fetch()):
-        rlens += [len(read.get_forward_sequence())]
-        if n > 10000:
-            break
-    alignments.close()
-    return pd.Series(rlens).value_counts().idxmax()
     
 def get_bam_features(BAMFILE):
     # Get Sample name from Cellranger-formatted BAM:
     alignments = pysam.AlignmentFile(BAMFILE, "rb")
     try: 
         sample_name = alignments.header.get('RG')[0].get('SM')
-    except:
+    except TypeError:
         sample_name = 'UnknownSample'
     
     # Get read length of run by skimming first 10,000 lines:
@@ -256,7 +237,7 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
     """
     
     def stash_read(
-        read: pysam.AlignedSegment, 
+        read: pysam.AlignedSegment,
         detailed_results: dict,
         miRNA: str,
         distance: int):
@@ -286,7 +267,7 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
             detailed_results[read_name][tag[0]] = tag[1]
             
     def finalize_miRNA_bam(
-        OUTBAM_FILENAME,
+        outbam_filename,
         ):
         """
         Sorts, indexes, and cleans up temporary miRNA BAM file.
@@ -294,17 +275,17 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
         sys.stdout.write(f'Finalizing BAM output: {time.asctime()} \n')    
         sys.stdout.write("Sorting output... \n")
         
-        pysam.sort("-o", OUTBAM_FILENAME, "tmp_miRNA_matching.bam")
+        pysam.sort("-o", outbam_filename, "tmp_miRNA_matching.bam")
 
         if os.path.exists('tmp_miRNA_matching.bam'):
             os.remove("tmp_miRNA_matching.bam")
             sys.stdout.write('Cleaning up temp files... \n')
             
-        FILESIZE = np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2)
-        sys.stdout.write(f'miRNA BAM file size = {FILESIZE} MB \n')
+        file_size = np.round(os.path.getsize(outbam_filename) / 1024**2, 2)
+        sys.stdout.write(f'miRNA BAM file size = {file_size} MB \n')
 
         sys.stdout.write(f'Generating BAM index... {time.asctime()} \n')
-        pysam.index(OUTBAM_FILENAME)
+        pysam.index(outbam_filename)
         sys.stdout.write(f"Finished sorting and indexing BAM output {time.asctime()} \n")
         
     sys.stdout.write(f'Starting count_miRNAs: {time.asctime()} \n')
@@ -421,9 +402,9 @@ def read_10x_mtx(matrix_path: Union[str, bytes, os.PathLike]):
     Reads a Cellranger-formatted matrix path for concatentation with miRNA data
     Will accept filtered_feature_bc_matrix/ or raw_feature_bc_matrix/ folders.
     """
-    VALID_10X_FILES = ['features.tsv.gz', 'barcodes.tsv.gz', 'matrix.mtx.gz']
-    assert os.listdir(matrix_path) == VALID_10X_FILES, \
-    f'Warning, specified Cellranger matrix folder must contain ONLY the files: {VALID_10X_FILES}'
+    valid_10x_files = ['features.tsv.gz', 'barcodes.tsv.gz', 'matrix.mtx.gz']
+    assert os.listdir(matrix_path) == valid_10x_files, \
+    f'Warning, specified Cellranger matrix folder must contain ONLY the files: {valid_10x_files}'
     
     MTX = io.mmread(os.path.join(matrix_path,'matrix.mtx.gz'))
     OBS = pd.read_table(os.path.join(matrix_path,'barcodes.tsv.gz'), header=None, index_col=0)
@@ -452,21 +433,21 @@ def merge_miRNA_with_GEX(
     filtered_count_df = count_df.loc[:,keep_cells]
     
     # Initialize empty counts matrix to concatenate with GEX
-    NEWDATA = np.zeros([len(OBS), len(count_df)], dtype='int')
+    new_data = np.zeros([len(OBS), len(count_df)], dtype='int')
     
     # Fill with miRNA counts and sparsify
     for n, row in enumerate(filtered_count_df.iterrows()):
-        NEWDATA[keep_cells_indices,n] = row[1]
-    sparse_mi_mtx = scipy.sparse.csr_matrix(NEWDATA.T)
+        new_data[keep_cells_indices,n] = row[1]
+    sparse_mi_mtx = scipy.sparse.csr_matrix(new_data.T)
 
     # Stack with GEX matrix
-    NEWMTX = scipy.sparse.vstack([MTX,sparse_mi_mtx])
+    new_mtx = scipy.sparse.vstack([MTX,sparse_mi_mtx])
 
     # create feature name tsv table
-    MIRVAR = pd.DataFrame(index = [mi_name_dict[mi] for mi in count_df.index])
-    MIRVAR['gene_name'] = [name + '-DroshaProd' for name in count_df.index]
-    MIRVAR['feature_types'] = 'Gene Expression'
-    NEWVAR = pd.concat([VAR,MIRVAR])
+    mir_var = pd.DataFrame(index = [mi_name_dict[mi] for mi in count_df.index])
+    mir_var['gene_name'] = [name + '-DroshaProd' for name in count_df.index]
+    mir_var['feature_types'] = 'Gene Expression'
+    new_var = pd.concat([VAR,mir_var])
     
     # Create outdir, if necessary
     if not os.path.exists(outdir):
@@ -478,7 +459,7 @@ def merge_miRNA_with_GEX(
         os.mkdir(MTX_outdir)
         
     # Write features.tsv.gz
-    NEWVAR.to_csv(
+    new_var.to_csv(
         os.path.join(MTX_outdir,'features.tsv.gz'),
         sep = '\t',
         compression='gzip',
@@ -494,17 +475,17 @@ def merge_miRNA_with_GEX(
 
     sys.stdout.write(f'gzipping... {time.asctime()} \n')
     # Write MEX-formatted MTX file and gzip it
-    MTXOUT = os.path.join(MTX_outdir,'matrix.mtx')
+    mtx_out = os.path.join(MTX_outdir,'matrix.mtx')
     io.mmwrite(
-        MTXOUT,
-        NEWMTX)
+        mtx_out,
+        new_mtx)
 
-    MTXOUT = os.path.join(MTX_outdir,'matrix.mtx')
-    with open(MTXOUT, 'rb') as FROM, gzip.open(MTXOUT + '.gz', 'wb') as TO:
+    mtx_out = os.path.join(MTX_outdir,'matrix.mtx')
+    with open(mtx_out, 'rb') as FROM, gzip.open(mtx_out + '.gz', 'wb') as TO:
         TO.writelines(FROM)
     
     # Cleanup
-    os.remove(MTXOUT)
+    os.remove(mtx_out)
     
     file_list = [os.path.join(outdir,f) \
                  for f in ['features.tsv.gz', 'barcodes.tsv.gz','matrix.mtx.gz']]

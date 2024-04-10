@@ -295,10 +295,10 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
         logging.info(f'Finalizing BAM output')    
         logging.info("Sorting output")
         
-        pysam.sort("-o", OUTBAM_FILENAME, "tmp_miRNA_matching.bam")
+        pysam.sort("-o", OUTBAM_FILENAME, f"{outdir}/tmp_miRNA_matching.bam")
 
-        if os.path.exists('tmp_miRNA_matching.bam'):
-            os.remove("tmp_miRNA_matching.bam")
+        if os.path.exists(f"{outdir}/tmp_miRNA_matching.bam"):
+            os.remove(f"{outdir}/tmp_miRNA_matching.bam")
             logging.info('Cleaning up temp files')
             
         FILESIZE = np.round(os.path.getsize(OUTBAM_FILENAME) / 1024**2, 2)
@@ -328,7 +328,7 @@ def count_miRNAs(BAM: Union[str, bytes, os.PathLike],
     
     # Initialize output BAM file, if writing one
     if write_miRNA_bam:
-        MI_READS = pysam.AlignmentFile('tmp_miRNA_matching.bam', "wb", template=alignments)
+        MI_READS = pysam.AlignmentFile(f"{outdir}/tmp_miRNA_matching.bam", "wb", template=alignments)
 
     # Main loop over all miRNAs in GTF file to detect candidate fragments:
     for mirna, chrom in allmi.items():

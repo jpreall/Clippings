@@ -17,18 +17,14 @@ LONG_DESC_TYPE = "text/markdown"
 INSTALL_REQUIRES = [
       'numpy',
       'pandas',
-      'scanpy',
       'matplotlib',
       'scipy',
-      'seaborn',
       'pysam',
       'argparse',
       'h5py',
       'h5sparse',
       'gtfparse',
-      'anndata',
-      'pararead',
-      'logmuse'
+      'anndata'
 ]
 
 setup(name=PACKAGE_NAME,
